@@ -68,6 +68,10 @@ import ScoutCore
         let finished = UNNotificationCategory(identifier:"finished",actions:[UNNotificationAction(identifier:"undo",title:"Undo",options:.foreground)],intentIdentifiers:[])
         let suggest = UNNotificationCategory(identifier:"suggest",actions:[UNNotificationAction(identifier:"automate",title:"Automate",options:.foreground),UNNotificationAction(identifier:"later",title:"Not now")],intentIdentifiers:[])
         UNUserNotificationCenter.current().setNotificationCategories([category,finished,suggest])
+        // `--demo <case>` replays one of the five examples right after launch (used for rehearsing the presentation).
+        if let index = CommandLine.arguments.firstIndex(of:"--demo"), CommandLine.arguments.count > index+1, Fixtures.shapes.contains(CommandLine.arguments[index+1]) {
+            let shape = CommandLine.arguments[index+1]; DispatchQueue.main.asyncAfter(deadline:.now()+1.5) { [weak self] in self?.show("home"); self?.demo(shape) }
+        }
         ai.onResponse = { [weak self] task,text in Task { @MainActor in guard let self else { return }; self.aiLog.append("[\(Date().formatted(date:.omitted,time:.standard))] \(task.prefix(60))…\n\(text.prefix(4000))"); if self.aiLog.count > 20 { self.aiLog.removeFirst() } } }
         reload(); observer.start()
         timer = Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
