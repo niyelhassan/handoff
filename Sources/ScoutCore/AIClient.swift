@@ -83,6 +83,13 @@ public final class AIClient {
             ?? first.first(where: { $0.event.kind == "copy" && $0.details["path"]?.hasPrefix("/") == true })?.details["path"]
             ?? first.first(where: { $0.details["path"]?.hasPrefix("/") == true })?.details["path"]
             ?? first.compactMap { $0.details["document"] }.compactMap { locateDocument?($0) }.first
+            ?? first.filter { $0.event.kind == "copy" }.compactMap { $0.details["window"] }.compactMap { locateDocument?(documentName($0)) }.first
+    }
+    /// "addresses.txt — Edited" or "addresses.csv - Excel" → "addresses.txt" / "addresses.csv".
+    static func documentName(_ title: String) -> String {
+        var name = title
+        for separator in [" — ", " – ", " - "] { if let range = name.range(of:separator) { name = String(name[..<range.lowerBound]) } }
+        return name.trimmingCharacters(in:.whitespaces)
     }
     /// Operations a routine of the given shape may use. Narrowing the schema keeps the model on deterministic file and
     /// table steps for file-based routines instead of driving other apps by clicks.

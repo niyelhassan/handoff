@@ -151,7 +151,7 @@ import ScoutCore
         guard !policy.paused else { return }
         reload()
         do { for a in try triggers.scheduled(automations:automations) { enqueue(a) } } catch { self.error = error.localizedDescription }
-        guard access, sharing, !busy, candidate == nil, runner.active == nil, Date().timeIntervalSince(observer.lastInteraction) > 5, Date().timeIntervalSince(lastSuggestion) >= 120 else { return }
+        guard access, sharing, !busy, candidate == nil, runner.active == nil, Date().timeIntervalSince(observer.lastInteraction) > 5, Date().timeIntervalSince(lastSuggestion) >= 30 else { return }
         // Full-screen windows are treated as presentations; suggestions remain silent.
         if NSApp.currentSystemPresentationOptions.contains(.fullScreen) { return }
         detect()
@@ -173,10 +173,9 @@ import ScoutCore
                     guard !policy.paused else { return }
                     if judged.isRoutine && judged.automatable {
                         candidate = found; judgment = judged; disclosure = try ai.disclosure(found); lastSuggestion = Date(); try memory.save(lastSuggestion,kind:"lastSuggestion",id:"last")
-                        // A small notification is the first contact; the window opens if the person wants to look.
-                        notify(title:"You’ve done this \(found.count) times: \(judged.name)",body:judged.description+" Want Handoff to take it over?",category:"suggest",id:found.id)
-                        // The suggestion also opens the window so the offer is impossible to miss.
-                        show("home")
+                        // The offer slides in beside the person's work without taking focus from it.
+                        SuggestionPanel.present(model:self)
+                        if selfTest || window?.isVisible == true { show("home") }
                     } else {
                         // Not a routine (or not automatable): remember that for a week so the same activity is not judged again.
                         try memory.save(Suppression(id:found.id,until:Date().addingTimeInterval(7*86400)),kind:"suppression",id:found.id)

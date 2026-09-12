@@ -64,7 +64,7 @@ import ScoutCore
         var details = extras; details["window"] = context.window; details["url"] = context.url.scheme == "about" ? "" : context.url.absoluteString; details["label"] = rawLabel
         if let target { details["identifier"] = axString(target,kAXIdentifierAttribute); if ["click","paste","copy"].contains(kind) { let value = axString(target,kAXValueAttribute); if value.count <= 4096 { details["value"] = value } } }
         // Tokens contain no window titles, URLs, filenames or field values.
-        var event = Event(app:context.app,kind:kind,role:role,label:semanticLabel,context:context.url.host ?? "",instance:digest(context.url.absoluteString+context.window+(details["row"] ?? "")))
+        var event = Event(app:context.app,kind:kind,role:role,label:semanticLabel,context:context.url.host ?? "",instance:digest(context.url.absoluteString+context.window+(details["row"] ?? "")+(kind == "copy" ? (details["text"] ?? "") : "")))
         event.selfGenerated = runningAutomation
         onEvent?(Evidence(event,details))
     }

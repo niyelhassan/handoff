@@ -163,7 +163,14 @@ public extension UIExecuting {
     }
     private func execute(_ step: Step, args: [String:String], record: inout RunRecord) async throws {
         switch step.operation {
-        case .readCSV: record.tables[args["output"]!] = try Table.parse(String(decoding:read(file(args["path"]!)),as:UTF8.self))
+        case .readCSV:
+            let url = try file(args["path"]!); let text = String(decoding:try read(url),as:UTF8.self)
+            // A plain .txt list is one column: the first line names it, every other non-empty line is a row (commas included).
+            if url.pathExtension.lowercased() == "txt" {
+                let lines = text.split(whereSeparator:\.isNewline).map { $0.trimmingCharacters(in:.whitespaces) }.filter { !$0.isEmpty }
+                guard let header = lines.first else { throw ScoutError.message("The list is empty.") }
+                record.tables[args["output"]!] = Table(columns:[header],rows:lines.dropFirst().map { [$0] })
+            } else { record.tables[args["output"]!] = try Table.parse(text) }
         case .transformTable:
             guard var table = record.tables[args["table"]!] else { throw ScoutError.message("Read the table before changing it.") }
             try table.transform(action:args["action"]!,column:args["column"]!,value:args["value"]!); record.tables[args["output"]!] = table
