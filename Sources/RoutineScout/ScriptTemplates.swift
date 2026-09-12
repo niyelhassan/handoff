@@ -15,10 +15,12 @@ enum ScriptTemplates {
         case "com.apple.iWork.Numbers": script = "tell application id \"com.apple.iWork.Numbers\"\nif (count of documents) is 0 then return \"\"\nset p to \"\"\ntry\nset p to POSIX path of (file of front document as alias)\nend try\ntell front document\nreturn name & \"|\" & name of active sheet & \"|\" & name of selection range of first table of active sheet & \"|\" & p\nend tell\nend tell"
         case "com.microsoft.Excel": script = "tell application id \"com.microsoft.Excel\"\nset p to \"\"\ntry\nset p to POSIX path of (full name of active workbook)\nend try\nreturn name of active workbook & \"|\" & name of active sheet & \"|\" & (get address of selection) & \"|\" & p\nend tell"
         case "com.apple.mail": script = "tell application id \"com.apple.mail\"\nif (count of selection) is 0 then return \"\"\nset m to item 1 of selection\nreturn sender of m & \"|\" & subject of m\nend tell"
+        case "com.apple.finder": script = "tell application id \"com.apple.finder\"\nif (count of Finder windows) is 0 then return \"\"\nreturn POSIX path of (target of front Finder window as alias)\nend tell"
         default: return [:]
         }
         guard let value = try? execute(script).stringValue, !value.isEmpty else { return [:] }
         let parts = value.components(separatedBy:"|")
+        if app == "com.apple.finder" { return ["folder":value] }
         if app == "com.apple.mail" { return ["sender":parts[0],"subject":parts.dropFirst().joined(separator:"|")] }
         var result = ["document":parts[0],"sheet":parts.count > 1 ? parts[1] : "","row":parts.count > 2 ? parts[2] : ""]
         if parts.count > 3, parts[3].hasPrefix("/") { result["path"] = parts[3] }

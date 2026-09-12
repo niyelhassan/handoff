@@ -32,6 +32,7 @@ struct XCTSkip: Error { var message: String; init(_ message: String) { self.mess
         await run("AI JSON schemas") { try suite.testAIJSONSchemaSerialization() }
         await run("All five demo patterns detected") { try suite.testAllFiveDemoPatternsDetected() }
         await run("Reference plans run for file cases") { try await suite.testReferencePlansRunForFileCases() }
+        await run("Client folders: detected, created, sloppy plan repaired") { try await suite.testClientFoldersDetectedAndCreated() }
         await run("Drive times: detected and run against live routing") { try await suite.testDriveTimesDetectedAndRunLive() }
         await run("Plan repair guardrails and file binding") { try suite.testPlanRepairGuardrails() }
         await run("Live Grok: all five cases") { try await suite.testLiveGrokAllFiveCases() }

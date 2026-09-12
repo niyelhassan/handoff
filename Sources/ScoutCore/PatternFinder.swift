@@ -46,7 +46,8 @@ public struct PatternFinder {
             // pipeline = a file moved through more than one app; loop = repeated submissions in one sitting; transfer/collect = copy and paste flows.
             // travel = an address pasted into a maps site each time (the drive time is read off the screen and typed back).
             let maps = items.contains { ($0.event.kind == "paste" || $0.event.kind == "activate") && (($0.details["url"] ?? "") + $0.event.context).lowercased().contains("maps") }
-            let shape = csvFiles >= 2 && kinds.contains("export") ? "transform" : loop ? "loop" : imageFiles >= 2 ? "image" : maps && kinds.contains("paste") && apps.count > 1 ? "travel" : kinds.contains("file") && apps.count > 1 ? "pipeline" : kinds.filter { $0 == "paste" }.count >= 2 ? "transfer" : "collect"
+            let folders = items.contains { $0.event.kind == "shortcut" && ($0.details["shortcut"] ?? "").hasSuffix("shift+n") && $0.event.app == "com.apple.finder" } && kinds.contains("paste") && kinds.contains("copy")
+            let shape = folders ? "folders" : csvFiles >= 2 && kinds.contains("export") ? "transform" : loop ? "loop" : imageFiles >= 2 ? "image" : maps && kinds.contains("paste") && apps.count > 1 ? "travel" : kinds.contains("file") && apps.count > 1 ? "pipeline" : kinds.filter { $0 == "paste" }.count >= 2 ? "transfer" : "collect"
             guard accepted.count >= (["loop","transform"].contains(shape) ? 2 : 3) else { continue }
             found.append(Candidate(id:digest(key),shape:shape,instances:accepted.map { Array(episodes[$0.episode][$0.start..<($0.start+$0.length)]) },score:Double(accepted.count*items.count)))
         }

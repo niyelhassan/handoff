@@ -92,7 +92,7 @@ struct SuggestionCard: View {
             }
             if let judgment = model.judgment {
                 Text(judgment.name).font(.system(size:15,weight:.semibold))
-                if !accepted { Text(judgment.description).font(.system(size:12)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true) }
+                if !accepted { Text(offer ?? judgment.description).font(.system(size:12)).foregroundStyle(.secondary).fixedSize(horizontal:false,vertical:true) }
             }
             stage
         }
@@ -106,6 +106,13 @@ struct SuggestionCard: View {
         .onChange(of:run?.status) { _,_ in refit() }
     }
 
+    /// Shape-specific wording for the first stage; falls back to Grok's description.
+    private var offer: String? {
+        switch model.candidate?.shape {
+        case "folders": return "Notice you’re creating folders from this list—want me to generate the rest?"
+        default: return nil
+        }
+    }
     private var headline: String {
         if let run { return run.status == "succeeded" ? "Done" : run.status == "failed" ? "Stopped" : "Handoff is doing it" }
         if accepted { return model.busy ? "Grok is building it…" : "Ready to hand off" }
@@ -138,7 +145,7 @@ struct SuggestionCard: View {
             HStack {
                 Button("Not now") { finish(false) }.controlSize(.small)
                 Spacer()
-                Button("Take it from here") { accepted = true; model.build() }.controlSize(.small).keyboardShortcut(.defaultAction)
+                Button(model.candidate?.shape == "folders" ? "Generate the rest" : "Take it from here") { accepted = true; model.build() }.controlSize(.small).keyboardShortcut(.defaultAction)
             }
         }
     }

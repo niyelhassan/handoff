@@ -96,7 +96,7 @@ public extension UIExecuting {
                     // The source is a table name (written plainly or as {{name}}) or a JSON list.
                     var name = (step.args["source"] ?? "").trimmingCharacters(in:.whitespaces); let rows: [[String:String]]
                     if name.hasPrefix("{{"), name.hasSuffix("}}") { name = String(name.dropFirst(2).dropLast(2)).trimmingCharacters(in:.whitespaces) }
-                    if let table = record.tables[name] ?? record.tables[args["source"] ?? ""] ?? (record.tables.count == 1 && !name.hasPrefix("[") ? record.tables.values.first : nil) { rows = table.records() } else {
+                    if let table = record.tables[name] ?? record.tables[args["source"] ?? ""] ?? (record.tables.count == 1 && !name.hasPrefix("[") ? record.tables.values.first : nil) { rows = table.records().map { row in var r = row; if let first = table.columns.first, let v = row[first] { r["first"] = v }; return r } } else {
                         guard let list = try? JSONDecoder().decode([String].self,from:Data((args["source"] ?? "").utf8)) else { throw ScoutError.message("The loop needs a table read earlier (‘\(name)’ was not found) or a list of values.") }
                         rows = list.map { ["value":$0] }
                     }
@@ -177,6 +177,10 @@ public extension UIExecuting {
         case .writeCSV:
             guard let table = record.tables[args["table"]!] else { throw ScoutError.message("The table has not been read yet.") }
             try write(Data(table.csv.utf8),to:file(args["path"]!),record:&record,allowExisting:false)
+        case .createFolder:
+            let url = try file(args["path"]!); var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath:url.path,isDirectory:&isDirectory) { guard isDirectory.boolValue else { throw ScoutError.message("A file named \(url.lastPathComponent) is already there.") } }
+            else { try FileManager.default.createDirectory(at:url,withIntermediateDirectories:true) }
         case .driveTime:
             let minutes = try await TravelTime.minutes(from:args["origin"]!,to:args["destination"]!)
             record.values[args["output"]!] = minutes

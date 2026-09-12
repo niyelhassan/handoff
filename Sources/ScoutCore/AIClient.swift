@@ -99,6 +99,7 @@ public final class AIClient {
         case "image": return [.waitForFile,.resizeImage,.convertImage,.moveFile,.copyFile,.renameFile,.revealFile,.ask]
         case "pipeline": return [.waitForFile,.moveFile,.copyFile,.renameFile,.revealFile,.openFile,.ifMatches,.endIf,.ask]
         case "travel": return [.readCSV,.forEach,.driveTime,.appendCSV,.endLoop,.ifMatches,.endIf,.ask]
+        case "folders": return [.readCSV,.forEach,.createFolder,.endLoop,.ifMatches,.endIf,.ask]
         default: return nil
         }
     }
@@ -148,6 +149,14 @@ public final class AIClient {
             if !writes {
                 result.steps.insert(Step(.appendCSV,"Write the minutes next to the address",["path":"{{folder}}/{{stem}}-drive-times.csv","columns":"[\"Address\",\"Drive Time (min)\"]","values":"[\"{{\(item).Address}}\",\"{{\(args["output"]!)}}\"]"]),at:d+1)
             }
+        }
+        // Folder creation from a table: the folder name must come from the row, and it must live inside a loop.
+        if let f = result.steps.firstIndex(where: { $0.operation == .createFolder }) {
+            let loop = result.steps[..<f].last { $0.operation == .forEach }
+            let item = loop?.args["item"] ?? "row"
+            var args = result.steps[f].args; let path = args["path"] ?? ""
+            if !path.contains("{{\(item)") { args["path"] = (path.isEmpty ? "{{home}}/Desktop/Clients" : path.hasSuffix("/") ? String(path.dropLast()) : path) + "/{{\(item).first}}" }
+            result.steps[f].parameters = args.map { Parameter($0.key,$0.value) }
         }
         // Duplicate step ids break resume; make them unique while keeping the titles.
         var seen = Set<String>()

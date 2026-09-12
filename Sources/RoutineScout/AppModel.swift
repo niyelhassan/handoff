@@ -257,6 +257,8 @@ import ScoutCore
         // Reset the outputs of earlier tries so the routines can run again from a clean start.
         for leftover in ["Invoices","Web","sales-0-clean.csv","addresses-drive-times.csv"] { try? FileManager.default.removeItem(at:root.appendingPathComponent(leftover)) }
         try Fixtures.addressesCSV.write(to:root.appendingPathComponent("addresses.csv"),atomically:true,encoding:.utf8)
+        try Fixtures.clientsCSV.write(to:root.appendingPathComponent("clients.csv"),atomically:true,encoding:.utf8)
+        try? FileManager.default.removeItem(at:root.appendingPathComponent("Clients")); try FileManager.default.createDirectory(at:root.appendingPathComponent("Clients"),withIntermediateDirectories:true)
         for stale in (try? FileManager.default.contentsOfDirectory(atPath:root.path)) ?? [] where stale.hasSuffix("-resized.png") { try? FileManager.default.removeItem(at:root.appendingPathComponent(stale)) }
         try "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n".write(to:root.appendingPathComponent("sales-0.csv"),atomically:true,encoding:.utf8)
         try "Name,Email\nAda,ada@example.test\nBea,bea@example.test\nCy,cy@example.test\n".write(to:root.appendingPathComponent("people.csv"),atomically:true,encoding:.utf8)

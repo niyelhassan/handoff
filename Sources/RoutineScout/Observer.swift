@@ -115,7 +115,7 @@ import ScoutCore
     private func boundary() { guard !policy.paused else { return }; onEvent?(Evidence(Event(app:"system",kind:"boundary"))); onInteraction?() }
     private func probe() -> [String:String] {
         // Only fixed, read-only templates. Failed app permission does not prevent observation.
-        guard let c = context(), ["com.apple.iWork.Numbers","com.microsoft.Excel","com.apple.mail"].contains(c.app) else { return [:] }
+        guard let c = context(), ["com.apple.iWork.Numbers","com.microsoft.Excel","com.apple.mail","com.apple.finder"].contains(c.app) else { return [:] }
         return ScriptTemplates.context(app:c.app)
     }
     private func watchFiles() {

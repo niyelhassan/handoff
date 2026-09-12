@@ -77,6 +77,19 @@ final class CoreTests {
         XCTAssertThrowsError(try Catalog.validate(automatic))
         automatic.allowIrreversible = true; XCTAssertNoThrow(try Catalog.validate(automatic))
     }
+    @MainActor func testClientFoldersDetectedAndCreated() async throws {
+        let root = try temporary()
+        XCTAssertEqual(PatternFinder().candidates(Fixtures.evidence("folders",root:root.path)).first?.shape,"folders")
+        try Fixtures.clientsCSV.write(to:root.appendingPathComponent("clients.csv"),atomically:true,encoding:.utf8)
+        try FileManager.default.createDirectory(at:root.appendingPathComponent("Clients/Acme Robotics"),withIntermediateDirectories:true)
+        let runner = Runner(memory:try Memory(path:":memory:"))
+        let plan = Fixtures.clientFolders(root:root.path); XCTAssertNoThrow(try Catalog.validate(plan))
+        let run = try await runner.run(plan); XCTAssertEqual(run.status,"succeeded",run.message)
+        for client in Fixtures.clients { XCTAssertTrue(FileManager.default.fileExists(atPath:root.appendingPathComponent("Clients/\(client)").path),client) }
+        // A Grok plan that forgot the row variable is repaired to name folders after the row.
+        var sloppy = plan; sloppy.steps[2] = Step(.createFolder,"Make folder",["path":root.path+"/Clients"])
+        XCTAssertEqual(AIClient.repair(sloppy).steps[2].args["path"],root.path+"/Clients/{{row.first}}")
+    }
     @MainActor func testDriveTimesDetectedAndRunLive() async throws {
         let root = try temporary()
         let candidates = PatternFinder().candidates(Fixtures.evidence("travel",root:root.path))
@@ -163,7 +176,8 @@ final class CoreTests {
         let ai = AIClient(model:ProcessInfo.processInfo.environment["SCOUT_MODEL"] ?? AIClient.defaultModel)
         let db = try Memory(path:":memory:"); let runner = Runner(memory:db); runner.onAsk = { _ in true }
         var failures: [String] = []
-        for shape in Fixtures.shapes {
+        let only = ProcessInfo.processInfo.environment["SCOUT_LIVE_SHAPES"]?.split(separator:",").map(String.init)
+        for shape in Fixtures.shapes where only == nil || only!.contains(shape) {
             let candidate = try XCTUnwrap(PatternFinder().candidates(Fixtures.evidence(shape,root:root.path)).first)
             do {
                 let t0 = Date(); let judgment = try await ai.judge(candidate); let judgeTime = Int(Date().timeIntervalSince(t0))
@@ -181,6 +195,14 @@ final class CoreTests {
                     let run = try await runner.run(plan); guard run.status == "succeeded" else { failures.append("\(shape): run \(run.status): \(run.message)"); continue }
                     try verifyOutputs(shape,root:root)
                     XCTAssertTrue(plan.suggestedTriggers.contains { $0.kind == "file" },"\(shape) should suggest a file trigger")
+                case "folders":
+                    try Fixtures.clientsCSV.write(to:root.appendingPathComponent("clients.csv"),atomically:true,encoding:.utf8)
+                    try? FileManager.default.removeItem(at:root.appendingPathComponent("Clients")); try FileManager.default.createDirectory(at:root.appendingPathComponent("Clients/Acme Robotics"),withIntermediateDirectories:true)
+                    let run = try await runner.run(plan); guard run.status == "succeeded" else { failures.append("folders: run \(run.status): \(run.message)"); continue }
+                    let missing = Fixtures.clients.filter { !FileManager.default.fileExists(atPath:root.appendingPathComponent("Clients/\($0)").path) }
+                    guard missing.isEmpty else { failures.append("folders: not created: \(missing)"); continue }
+                case "travel":
+                    guard plan.steps.contains(where: { $0.operation == .driveTime }), plan.steps.contains(where: { $0.operation == .appendCSV }) else { failures.append("travel: expected driveTime and appendCSV"); continue }
                 case "loop":
                     let ops = plan.steps.map(\.operation)
                     guard ops.contains(.forEach), ops.contains(.endLoop), ops.contains(.readCSV) else { failures.append("loop: missing readCSV/forEach"); continue }
