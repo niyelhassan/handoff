@@ -13,7 +13,7 @@ struct ScoutView: View {
         VStack(alignment:.leading,spacing:0) {
             HStack {
                 Image(systemName:"sparkle.magnifyingglass").font(.title).foregroundStyle(.teal)
-                VStack(alignment:.leading) { Text("Routine Scout").font(.title2.bold()); Text(model.status).font(.caption).foregroundStyle(.secondary) }
+                VStack(alignment:.leading) { Text("Handoff").font(.title2.bold()); Text(model.status).font(.caption).foregroundStyle(.secondary) }
                 Spacer()
                 if model.busy { ProgressView().controlSize(.small) }
                 Button(model.policy.paused ? "Resume" : "Pause") { model.pause(model.policy.paused ? 0 : 3600) }
@@ -44,7 +44,7 @@ struct ScoutView: View {
         VStack(alignment:.leading,spacing:20) {
             Image(systemName:"leaf.circle.fill").font(.system(size:64)).foregroundStyle(.teal)
             Text("Let the small repeats take care of themselves.").font(.largeTitle.bold())
-            Text("Routine Scout notices procedures you repeat and offers to handle them. You review and try every routine before it can run again.")
+            Text("Handoff notices procedures you repeat and offers to handle them. You review and try every routine before it can run again.")
             Text("Activity stays on your Mac. A few examples of a repeated procedure are shared with Grok to understand and build it. No screenshots or ordinary typing are recorded. You can turn sharing off or pause at any time.").foregroundStyle(.secondary)
             Button("Allow access") { model.allow() }.buttonStyle(.borderedProminent).controlSize(.large)
             Text("macOS will ask you to allow access. Notifications are optional.").font(.caption).foregroundStyle(.secondary)
@@ -52,7 +52,7 @@ struct ScoutView: View {
     }
     var home: some View {
         VStack(alignment:.leading,spacing:20) {
-            if !model.access { GroupBox("Allow access to notice routines") { VStack(alignment:.leading,spacing:10) { Text("Turn on Routine Scout in System Settings → Privacy & Security → Accessibility, then return here."); Button("Open access settings") { model.allow() } }.padding(8) } }
+            if !model.access { GroupBox("Allow access to notice routines") { VStack(alignment:.leading,spacing:10) { Text("Turn on Handoff in System Settings → Privacy & Security → Accessibility, then return here."); Button("Open access settings") { model.allow() } }.padding(8) } }
             if let c = model.candidate, let j = model.judgment {
                 GroupBox {
                     VStack(alignment:.leading,spacing:14) {
@@ -151,7 +151,7 @@ struct ScoutView: View {
             Text(model.policy.ignoredSites.joined(separator:", ")).font(.caption)
             HStack { TextField("Website, for example example.com",text:$ignoredSite); Button("Add") { let raw = ignoredSite.lowercased().trimmingCharacters(in:.whitespacesAndNewlines); if !raw.isEmpty { model.policy.ignoredSites.append(URL(string:raw.contains("://") ? raw : "https://"+raw)?.host ?? raw); ignoredSite = ""; model.savePolicy() } } }
             Divider(); Text("Try an example").font(.headline)
-            Text("Replay three recorded repetitions of a routine: Routine Scout notices it, asks Grok whether it is worth automating, and offers it just like it would after watching you. Sample files live in Downloads › Routine Scout Demo; practice web pages run locally in Safari.").font(.caption).foregroundStyle(.secondary)
+            Text("Replay three recorded repetitions of a routine: Handoff notices it, asks Grok whether it is worth automating, and offers it just like it would after watching you. Sample files live in Downloads › Handoff Demo; practice web pages run locally in Safari.").font(.caption).foregroundStyle(.secondary)
             Text("Replay a routine being repeated").font(.subheadline)
             HStack { ForEach(Fixtures.shapes,id:\.self) { shape in Button(Fixtures.title(shape)) { model.demo(shape) } } }.disabled(model.busy)
             Text("Open a ready-made routine (skips detection)").font(.subheadline)

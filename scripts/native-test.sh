@@ -4,11 +4,11 @@
 # Usage: scripts/native-test.sh [results-dir]
 set -euo pipefail
 SCOUT_ROOT="${0:A:h:h}"
-SCOUT_APP="${SCOUT_APP:-$SCOUT_ROOT/../Routine Scout.app}"
+SCOUT_APP="${SCOUT_APP:-$SCOUT_ROOT/../Handoff.app}"
 RESULTS="${1:-$SCOUT_ROOT/TestResults/native-$(date +%H%M%S)}"
 mkdir -p "$RESULTS"
 rm -f "$RESULTS/integration-report.txt"
-pkill -f "Routine Scout.app/Contents/MacOS/RoutineScout" 2>/dev/null || true
+pkill -f "Handoff.app/Contents/MacOS/RoutineScout" 2>/dev/null || true
 sleep 1
 # Launch through LaunchServices so the app is its own "responsible process" for the Accessibility permission.
 # Launching the binary directly from a terminal would make macOS check the terminal's permission instead.

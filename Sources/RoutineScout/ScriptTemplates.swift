@@ -6,7 +6,7 @@ enum ScriptTemplates {
     static func execute(_ script: String) throws -> NSAppleEventDescriptor {
         guard let source = NSAppleScript(source:script) else { throw ScoutError.message("Could not prepare the app action.") }
         var error: NSDictionary?; let result = source.executeAndReturnError(&error)
-        if let error { let number = error[NSAppleScript.errorNumber] as? Int ?? 0; throw ScoutError.message(number == -1743 ? "Allow Routine Scout to control this app in System Settings → Privacy & Security → Automation." : "The app could not complete the action. Make sure the named document, sheet and table are open (\(number)).") }
+        if let error { let number = error[NSAppleScript.errorNumber] as? Int ?? 0; throw ScoutError.message(number == -1743 ? "Allow Handoff to control this app in System Settings → Privacy & Security → Automation." : "The app could not complete the action. Make sure the named document, sheet and table are open (\(number)).") }
         return result
     }
     static func context(app: String) -> [String:String] {

@@ -21,7 +21,7 @@ struct AXNode {
 @MainActor final class Accessibility {
     var policy: () -> PrivacyPolicy = { PrivacyPolicy() }
     func tree(app: String) throws -> [AXNode] {
-        guard AXIsProcessTrusted() else { throw ScoutError.message("Allow Routine Scout in System Settings → Privacy & Security → Accessibility.") }
+        guard AXIsProcessTrusted() else { throw ScoutError.message("Allow Handoff in System Settings → Privacy & Security → Accessibility.") }
         guard let running = NSRunningApplication.runningApplications(withBundleIdentifier:app).first else { throw ScoutError.message("Open the app used by this step first.") }
         let root = AXUIElementCreateApplication(running.processIdentifier)
         // Prefer the main window: transient popups (autofill suggestions, menus) can briefly become the focused window,
@@ -29,7 +29,7 @@ struct AXNode {
         // whose menu bar would exhaust the walk before reaching the content.
         guard let window = Self.contentWindow(root) else { throw ScoutError.message("Open the app’s window used by this step first.") }
         let title = axString(window,kAXTitleAttribute)
-        guard policy().permits(app:app,domain:pageURL(root).host ?? "",role:"",window:title) else { throw ScoutError.message("This app or page is excluded from Routine Scout.") }
+        guard policy().permits(app:app,domain:pageURL(root).host ?? "",role:"",window:title) else { throw ScoutError.message("This app or page is excluded from Handoff.") }
         var result: [AXNode] = []; var queue: [(AXUIElement,[String],Int)] = [(window,[],0)]; var index = 0
         while index < queue.count && result.count < 1500 {
             let (e,ancestors,depth) = queue[index]; index += 1

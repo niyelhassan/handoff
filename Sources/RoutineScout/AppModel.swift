@@ -51,7 +51,7 @@ import ScoutCore
         }
         dataDirectory = FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("RoutineScout")
         if let index = CommandLine.arguments.firstIndex(of:"--self-test"), CommandLine.arguments.count > index+1 { dataDirectory = URL(fileURLWithPath:CommandLine.arguments[index+1]) }
-        do { memory = try Memory(path:dataDirectory.appendingPathComponent("memory.sqlite").path) } catch { fatalError("Routine Scout could not open its local database: \(error.localizedDescription)") }
+        do { memory = try Memory(path:dataDirectory.appendingPathComponent("memory.sqlite").path) } catch { fatalError("Handoff could not open its local database: \(error.localizedDescription)") }
         runner = Runner(memory:memory); executor = MacExecutor(ax:ax); triggers = Triggers(memory:memory)
         super.init()
         runner.ui = executor
@@ -81,6 +81,8 @@ import ScoutCore
     /// early phase produced a window that was drawn but never received clicks or keystrokes.
     func launch() {
         observer.start()
+        // Ask for notification permission up front so the first suggestion can appear as a banner.
+        Task { let center = UNUserNotificationCenter.current(); if await center.notificationSettings().authorizationStatus == .notDetermined { _ = try? await center.requestAuthorization(options:[.alert,.sound]) } }
         // A CSV opened in Numbers is an untitled document: find the file by name in the usual folders.
         let demoRoot = self.demoRoot
         AIClient.locateDocument = { name in
@@ -108,11 +110,11 @@ import ScoutCore
         // title bar but clicks fall through to whatever is behind. Become a normal app first.
         NSApp.setActivationPolicy(.regular)
         if window == nil {
-            if let existing = NSApp.windows.first(where: { $0.title == "Routine Scout" && $0.contentView != nil }) {
+            if let existing = NSApp.windows.first(where: { $0.title == "Handoff" && $0.contentView != nil }) {
                 window = existing
             } else {
                 let w = ScoutWindow(contentRect:NSRect(x:0,y:0,width:620,height:680),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
-                w.title = "Routine Scout"; w.isReleasedWhenClosed = false; w.ignoresMouseEvents = false
+                w.title = "Handoff"; w.isReleasedWhenClosed = false; w.ignoresMouseEvents = false
                 w.contentView = InteractiveHostingView(rootView:ScoutView(model:self)); w.center(); window = w
             }
         }
@@ -172,7 +174,7 @@ import ScoutCore
                     if judged.isRoutine && judged.automatable {
                         candidate = found; judgment = judged; disclosure = try ai.disclosure(found); lastSuggestion = Date(); try memory.save(lastSuggestion,kind:"lastSuggestion",id:"last")
                         // A small notification is the first contact; the window opens if the person wants to look.
-                        notify(title:"You’ve done this \(found.count) times: \(judged.name)",body:judged.description+" Want Routine Scout to take it over?",category:"suggest",id:found.id)
+                        notify(title:"You’ve done this \(found.count) times: \(judged.name)",body:judged.description+" Want Handoff to take it over?",category:"suggest",id:found.id)
                         // The suggestion also opens the window so the offer is impossible to miss.
                         show("home")
                     } else {
@@ -232,7 +234,7 @@ import ScoutCore
     func enqueue(_ a: Automation, values: [String:String] = [:]) {
         guard !policy.paused, !pendingRuns.contains(where: { $0.0.id == a.id }), runner.active?.automation.id != a.id else { return }
         if a.mode == "automatic", runner.active == nil { run(a,values:values) }
-        else { pendingRuns.append((a,values)); notify(title:"Ready to \(a.name.lowercased())?",body:"Open Routine Scout to run or skip this one.",category:"routine",id:a.id) }
+        else { pendingRuns.append((a,values)); notify(title:"Ready to \(a.name.lowercased())?",body:"Open Handoff to run or skip this one.",category:"routine",id:a.id) }
     }
     func answer(_ yes: Bool) { askContinuation?.resume(returning:yes); askContinuation = nil; askMessage = nil }
     func stop() { runner.stop(); answer(false) }
@@ -249,7 +251,7 @@ import ScoutCore
         do { try memory.erase(); KeyStore.delete(); candidate = nil; review = nil; currentRun = nil; judgment = nil; pendingRuns = []; disclosure = ""; judging = []; sharing = false; policy = PrivacyPolicy(); policy.pausedUntil = .distantFuture; savePolicy(); reload() } catch { self.error = error.localizedDescription }
     }
     /// The demo folder. It lives inside Downloads so file triggers can be shown live, but in its own folder so it never mixes with real files.
-    var demoRoot: URL { selfTest ? dataDirectory.appendingPathComponent("Demo") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/Routine Scout Demo") }
+    var demoRoot: URL { selfTest ? dataDirectory.appendingPathComponent("Demo") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/Handoff Demo") }
     /// Creates the sample files that the five demo routines start from.
     @discardableResult func prepareDemo() throws -> URL {
         let root = demoRoot; try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
@@ -293,7 +295,19 @@ import ScoutCore
             if candidate == nil && !busy { error = "No routine was found in the replayed activity. Try again after a moment." }
         } catch { self.error = error.localizedDescription }
     }
-    private func notify(title: String,body: String,category: String,id: String) { let content = UNMutableNotificationContent(); content.title = title; content.body = body; content.categoryIdentifier = category; content.userInfo = ["id":id]; UNUserNotificationCenter.current().add(UNNotificationRequest(identifier:UUID().uuidString,content:content,trigger:nil)) }
+    private func notify(title: String,body: String,category: String,id: String) {
+        let content = UNMutableNotificationContent(); content.title = title; content.body = body; content.categoryIdentifier = category; content.userInfo = ["id":id]; content.sound = .default
+        let request = UNNotificationRequest(identifier:UUID().uuidString,content:content,trigger:nil)
+        Task {
+            let center = UNUserNotificationCenter.current()
+            var settings = await center.notificationSettings()
+            if settings.authorizationStatus == .notDetermined { _ = try? await center.requestAuthorization(options:[.alert,.sound]); settings = await center.notificationSettings() }
+            if settings.authorizationStatus == .denied { await MainActor.run { self.error = "Turn on notifications for Handoff in System Settings → Notifications to see its banners." } }
+            try? await center.add(request)
+        }
+    }
+    /// Show banners even while Handoff is the frontmost app (macOS hides them by default).
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner,.list,.sound] }
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,didReceive response: UNNotificationResponse) async {
         await MainActor.run {
             let id = response.notification.request.content.userInfo["id"] as? String ?? ""

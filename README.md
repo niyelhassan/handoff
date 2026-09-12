@@ -1,4 +1,4 @@
-# Routine Scout
+# Handoff
 
 A native macOS menu-bar app that notices when you repeat a procedure, offers to take it over, builds the automation with Grok, lets you try it, and then runs it when you ask, when the context matches, when a file appears, or on a schedule. No recording, no teaching, no scripting.
 
@@ -25,17 +25,17 @@ Observer  →  Memory (SQLite)  →  Pattern finder  →  Grok judge  →  notif
 Requires macOS 14+ and Swift 5.10+ (Command Line Tools are enough).
 
 ```sh
-scripts/build-app.sh          # builds "../Routine Scout.app" and signs it
-open "../Routine Scout.app"
+scripts/build-app.sh          # builds "../Handoff.app" and signs it
+open "../Handoff.app"
 ```
 
-On first launch click **Allow access** and enable Routine Scout under System Settings → Privacy & Security → Accessibility. The build script signs with your "Apple Development" identity when one exists so this grant survives rebuilds; ad-hoc builds must be re-allowed after every build.
+On first launch click **Allow access** and enable Handoff under System Settings → Privacy & Security → Accessibility. The build script signs with your "Apple Development" identity when one exists so this grant survives rebuilds; ad-hoc builds must be re-allowed after every build.
 
 Add a Grok API key in **Preferences**. It is stored in `~/Library/Application Support/RoutineScout/xai-key.txt` (owner-only permissions); `XAI_API_KEY` in the environment also works. The Keychain is intentionally not used because items created by one build prompt for the login password from every other build. Without a key, the examples still work using saved offline plans.
 
 ## The five demo routines
 
-| Case | What the person kept doing | What Routine Scout builds | Runs when |
+| Case | What the person kept doing | What Handoff builds | Runs when |
 |---|---|---|---|
 | New hires into the HR form | Copy name and email from a people table into a web form, submit, next row | `readCSV → forEach → setValue Name, Email → ask → click Submit → endLoop` | The form page is open (loop trigger) or on demand |
 | Weekly sales export cleanup | Open the downloaded CSV, drop a column, trim, fix amounts, sort, export a clean copy | `readCSV → transformTable… → writeCSV {{stem}}-clean.csv` proven against the observed output | A CSV lands in the folder (file trigger) |
@@ -43,7 +43,7 @@ Add a Grok API key in **Preferences**. It is stored in `~/Library/Application Su
 | Invoice filing by date | Rename each downloaded invoice with today’s date and move it to Invoices | `moveFile {{file}} → {{folder}}/Invoices/{{today}}-{{stem}}.pdf` | A PDF lands in the folder (file trigger) |
 | Screenshots to web JPEGs | Resize each screenshot to 1280 px and export as JPEG into Web | `resizeImage → convertImage → Web/{{stem}}.jpg` | A PNG lands in the folder (file trigger) |
 
-Menu bar → **Replay an example** (or Preferences → **Try an example**) feeds three recorded repetitions into memory exactly as the observer would have stored them, then runs the real pipeline: pattern finder → Grok judge → notification and suggestion card → **Automate** → Grok build → review sheet → **Try it now** → choose when it should run. Sample files live in `~/Downloads/Routine Scout Demo` (its own folder, so file triggers can be shown live without touching real files); the practice web pages are served on `127.0.0.1:8790` by the app itself. **Open a ready-made routine** skips detection.
+Menu bar → **Replay an example** (or Preferences → **Try an example**) feeds three recorded repetitions into memory exactly as the observer would have stored them, then runs the real pipeline: pattern finder → Grok judge → notification and suggestion card → **Automate** → Grok build → review sheet → **Try it now** → choose when it should run. Sample files live in `~/Downloads/Handoff Demo` (its own folder, so file triggers can be shown live without touching real files); the practice web pages are served on `127.0.0.1:8790` by the app itself. **Open a ready-made routine** skips detection.
 
 ## Tests
 

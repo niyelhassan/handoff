@@ -9,7 +9,7 @@ final class ScoutWindow: NSWindow {
 }
 
 /// SwiftUI's stock NSHostingView may consume the first click solely to activate an app.
-/// Routine Scout is frequently opened from another app, so its controls must accept that click.
+/// Handoff is frequently opened from another app, so its controls must accept that click.
 final class InteractiveHostingView<Content: View>: NSHostingView<Content> {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
@@ -33,16 +33,16 @@ final class InteractiveHostingView<Content: View>: NSHostingView<Content> {
     /// Right-clicking the Dock icon offers the same commands as the menu-bar item. On notched
     /// MacBooks a crowded menu bar can hide status items, so the Dock is the reliable fallback.
     func applicationDockMenu(_ sender: NSApplication) -> NSMenu? {
-        let menu = NSMenu(title:"Routine Scout")
+        let menu = NSMenu(title:"Handoff")
         rebuild(menu)
         return menu
     }
 
     private func installStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
-        item.button?.image = NSImage(systemSymbolName:"sparkle.magnifyingglass",accessibilityDescription:"Routine Scout")
-        item.button?.toolTip = "Routine Scout"
-        let menu = NSMenu(title:"Routine Scout")
+        item.button?.image = NSImage(systemSymbolName:"sparkle.magnifyingglass",accessibilityDescription:"Handoff")
+        item.button?.toolTip = "Handoff"
+        let menu = NSMenu(title:"Handoff")
         menu.delegate = self
         item.menu = menu
         statusItem = item
@@ -59,10 +59,10 @@ final class InteractiveHostingView<Content: View>: NSHostingView<Content> {
 
     private func rebuild(_ menu: NSMenu) {
         menu.removeAllItems()
-        let status = NSMenuItem(title:AppDelegate.model?.status ?? "Routine Scout",action:nil,keyEquivalent:"")
+        let status = NSMenuItem(title:AppDelegate.model?.status ?? "Handoff",action:nil,keyEquivalent:"")
         status.isEnabled = false
         menu.addItem(status)
-        add("Open Routine Scout",#selector(openHome),to:menu)
+        add("Open Handoff",#selector(openHome),to:menu)
         add("Activity",#selector(openActivity),to:menu)
         menu.addItem(.separator())
 
@@ -85,7 +85,7 @@ final class InteractiveHostingView<Content: View>: NSHostingView<Content> {
         }
         add("Preferences…",#selector(openPreferences),to:menu)
         menu.addItem(.separator())
-        add("Quit Routine Scout",#selector(quit),to:menu,key:"q")
+        add("Quit Handoff",#selector(quit),to:menu,key:"q")
     }
 
     @objc private func openHome() { AppDelegate.model?.show("home") }

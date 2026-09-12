@@ -9,7 +9,7 @@ extension AppModel {
         var report: [String] = []
         func log(_ text: String) { report.append(text); print(text); try? report.joined(separator:"\n").write(to:dataDirectory.appendingPathComponent("integration-report.txt"),atomically:true,encoding:.utf8) }
         log("Native integration test started. Accessibility: \(AXIsProcessTrusted())")
-        guard AXIsProcessTrusted() else { log("BLOCKED: Accessibility permission is not available to this build. Allow Routine Scout in System Settings → Privacy & Security → Accessibility, then rerun."); finish(); return }
+        guard AXIsProcessTrusted() else { log("BLOCKED: Accessibility permission is not available to this build. Allow Handoff in System Settings → Privacy & Security → Accessibility, then rerun."); finish(); return }
         do {
             let root = try prepareDemo()
             try practiceServer.start(); practiceServer.reset()
