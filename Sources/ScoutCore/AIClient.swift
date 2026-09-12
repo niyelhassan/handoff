@@ -87,6 +87,7 @@ public final class AIClient {
         case "transform": return [.waitForFile,.readCSV,.transformTable,.writeCSV]
         case "image": return [.waitForFile,.resizeImage,.convertImage,.moveFile,.copyFile,.renameFile,.revealFile,.ask]
         case "pipeline": return [.waitForFile,.moveFile,.copyFile,.renameFile,.revealFile,.openFile,.ifMatches,.endIf,.ask]
+        case "travel": return [.readCSV,.forEach,.driveTime,.appendCSV,.endLoop,.ifMatches,.endIf,.ask]
         default: return nil
         }
     }
@@ -122,6 +123,20 @@ public final class AIClient {
                 result.steps.insert(Step(.ask,"Confirm before \(step.target?.label ?? "submitting")",["message":"Go ahead and \(label) this one?"]),at:i); i += 1
             }
             i += 1
+        }
+        // Drive-time lookups inside a loop: the destination is the loop row's address column, and the
+        // minutes must be written somewhere, or the routine would look up values and throw them away.
+        if let d = result.steps.firstIndex(where: { $0.operation == .driveTime }) {
+            let loop = result.steps[..<d].last { $0.operation == .forEach }
+            let item = loop?.args["item"] ?? "row"
+            var args = result.steps[d].args
+            if (args["destination"] ?? "").isEmpty || !(args["destination"] ?? "").contains("{{") { args["destination"] = "{{\(item).Address}}" }
+            if (args["output"] ?? "").isEmpty { args["output"] = "minutes" }
+            result.steps[d].parameters = args.map { Parameter($0.key,$0.value) }
+            let writes = result.steps[(d+1)...].contains { [.appendCSV,.writeCSV,.setValue,.pasteValue,.numbersAppend,.excelAppend].contains($0.operation) }
+            if !writes {
+                result.steps.insert(Step(.appendCSV,"Write the minutes next to the address",["path":"{{folder}}/{{stem}}-drive-times.csv","columns":"[\"Address\",\"Drive Time (min)\"]","values":"[\"{{\(item).Address}}\",\"{{\(args["output"]!)}}\"]"]),at:d+1)
+            }
         }
         // Duplicate step ids break resume; make them unique while keeping the titles.
         var seen = Set<String>()

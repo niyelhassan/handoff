@@ -77,6 +77,20 @@ final class CoreTests {
         XCTAssertThrowsError(try Catalog.validate(automatic))
         automatic.allowIrreversible = true; XCTAssertNoThrow(try Catalog.validate(automatic))
     }
+    @MainActor func testDriveTimesDetectedAndRunLive() async throws {
+        let root = try temporary()
+        let candidates = PatternFinder().candidates(Fixtures.evidence("travel",root:root.path))
+        XCTAssertEqual(candidates.first?.shape,"travel","address → maps → minutes should be detected as a travel routine")
+        try Fixtures.addressesCSV.write(to:root.appendingPathComponent("addresses.csv"),atomically:true,encoding:.utf8)
+        let runner = Runner(memory:try Memory(path:root.appendingPathComponent("memory.sqlite").path))
+        let plan = Fixtures.driveTimes(root:root.path); XCTAssertNoThrow(try Catalog.validate(plan))
+        let started = Date(); let run = try await runner.run(plan)
+        XCTAssertEqual(run.status,"succeeded",run.message)
+        let table = try Table.parse(String(contentsOf:root.appendingPathComponent("addresses-drive-times.csv")))
+        XCTAssertEqual(table.rows.count,Fixtures.addresses.count)
+        for row in table.rows { print("   \(row[0]) → \(row[1]) min"); XCTAssertTrue(Int(row[1]).map { $0 > 0 && $0 < 120 } ?? false,"minutes for \(row[0])") }
+        print("   \(table.rows.count) real routes in \(Int(Date().timeIntervalSince(started))) s")
+    }
     @MainActor func testRealCSVEndToEndFiveTimesAndUndo() async throws {
         let root = try temporary(); let db = try Memory(path:root.appendingPathComponent("memory.sqlite").path); let runner = Runner(memory:db)
         let source = "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n"

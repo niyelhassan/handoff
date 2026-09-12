@@ -3,9 +3,15 @@ import Foundation
 /// The five demo routines. Each has recorded evidence (three repetitions, as the observer would have stored them),
 /// an offline judgment, and a reference plan that the local practice pages and files satisfy.
 public enum Fixtures {
-    public static let shapes = ["loop","transform","collect","pipeline","image"]
+    public static let shapes = ["travel","loop","transform","collect","pipeline","image"]
+    /// The fixed starting point of the drive-time example (the "office").
+    public static let office = "5000 Forbes Ave, Pittsburgh, PA 15213"
+    /// Twelve real Pittsburgh addresses for the drive-time example.
+    public static let addresses = ["1 PPG Pl, Pittsburgh, PA 15222","100 Art Rooney Ave, Pittsburgh, PA 15212","1000 Fort Duquesne Blvd, Pittsburgh, PA 15222","4400 Forbes Ave, Pittsburgh, PA 15213","1 Wild Pl, Pittsburgh, PA 15206","400 Larimer Ave, Pittsburgh, PA 15206","5000 Baum Blvd, Pittsburgh, PA 15213","1000 Airport Blvd, Pittsburgh, PA 15231","6100 Penn Ave, Pittsburgh, PA 15206","1901 Carson St, Pittsburgh, PA 15203","420 Fort Duquesne Blvd, Pittsburgh, PA 15222","3030 Banksville Rd, Pittsburgh, PA 15216"]
+    public static var addressesCSV: String { "Address,Drive Time (min)\n" + addresses.map { "\"\($0)\"," }.joined(separator:"\n") + "\n" }
     public static func title(_ shape: String) -> String {
         switch shape {
+        case "travel": return "Drive times from the office"
         case "loop": return "New hires into the HR form"
         case "transform": return "Weekly sales export cleanup"
         case "collect": return "Apartment hunt: save each listing"
@@ -21,9 +27,15 @@ public enum Fixtures {
             let base = now.addingTimeInterval(Double(offset-600))
             func e(_ app: String,_ kind: String,_ label: String,_ details: [String:String] = [:],_ index: Int, role: String? = nil, instance: String? = nil) {
                 let role = role ?? (kind == "paste" ? "AXTextField" : kind == "file" ? (details["extension"] ?? "") : "AXButton")
-                result.append(Evidence(Event(app:app,kind:kind,role:role,label:label,context:app == "com.apple.Safari" ? "127.0.0.1" : "",instance:instance ?? digest("\(shape)-\(run)"),time:base.addingTimeInterval(Double(index))),details))
+                result.append(Evidence(Event(app:app,kind:kind,role:role,label:label,context:app == "com.apple.Safari" ? (URL(string:details["url"] ?? "")?.host ?? "127.0.0.1") : "",instance:instance ?? digest("\(shape)-\(run)"),time:base.addingTimeInterval(Double(index))),details))
             }
             switch shape {
+            case "travel":
+                let minutes = ["9","14","12"]
+                e("com.apple.iWork.Numbers","copy","Address",["row":"A\(run+2)","text":addresses[run],"path":"\(root)/addresses.csv","document":"addresses.csv"],0)
+                e("com.apple.Safari","click","Directions",["url":"https://www.google.com/maps/"],1)
+                e("com.apple.Safari","paste","Choose destination, or click on the map...",["label":"Choose destination, or click on the map...","value":addresses[run],"url":"https://www.google.com/maps/dir/\(office)/"],2)
+                e("com.apple.iWork.Numbers","click","Drive Time (min)",["row":"B\(run+2)","value":minutes[run],"document":"addresses.csv","path":"\(root)/addresses.csv"],10,role:"AXCell")
             case "transform":
                 e("com.apple.Safari","file","",["path":"\(root)/sales-\(run).csv","extension":"csv","folder":root,"csv":"Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n"],0)
                 e("com.apple.iWork.Numbers","click","Open",[:],1)
@@ -65,6 +77,7 @@ public enum Fixtures {
     /// Offline stand-in for the AI judge, used by the local examples and when the network is unavailable.
     public static func judgment(_ shape: String) -> Judgment {
         switch shape {
+        case "travel": return Judgment(isRoutine:true,name:"Drive times from the office",description:"You copied each address from the addresses table, pasted it as the destination in Google Maps with the office as the start, read the drive time and typed the minutes back into the Drive Time column, three rows in a row.",automatable:true,reason:"Same lookup for three addresses",inputs:[0])
         case "loop": return Judgment(isRoutine:true,name:"Fill the form from your table",description:"You copied each person’s name and email from the people table into the same web form and submitted it, three rows in a row.",automatable:true,reason:"Repeated rows into the same form",inputs:[0,2])
         case "transform": return Judgment(isRoutine:true,name:"Clean a downloaded CSV",description:"Each time a sales CSV arrived, you opened it, kept the same columns, sorted it, and exported a clean copy.",automatable:true,reason:"Same cleanup on three downloads",inputs:[0])
         case "collect": return Judgment(isRoutine:true,name:"Collect listing details",description:"You copied the name, price and link from three listing pages into Apartment Search.",automatable:true,reason:"Same fields from three pages",inputs:[0,2])
@@ -74,12 +87,25 @@ public enum Fixtures {
     }
     public static func plan(_ shape: String, root: String) -> Automation {
         switch shape {
+        case "travel": return driveTimes(root:root)
         case "loop": return form(root:root)
         case "transform": return cleanup(root:root)
         case "collect": return collector(root:root)
         case "pipeline": return invoices(root:root)
         default: return screenshots(root:root)
         }
+    }
+    public static func driveTimes(root: String) -> Automation {
+        var a = Automation(name:"Drive times from the office",description:"Look up the real driving time from the office to every address in the table and save a copy of the table with the Drive Time column filled in.",steps:[
+            Step(.readCSV,"Read the addresses",["path":"{{file}}","output":"addresses"]),
+            Step(.forEach,"For each address",["source":"addresses","item":"row"]),
+            Step(.driveTime,"Look up the drive time from the office",["origin":office,"destination":"{{row.Address}}","output":"minutes"]),
+            Step(.appendCSV,"Write the minutes next to the address",["path":"{{folder}}/{{stem}}-drive-times.csv","columns":"[\"Address\",\"Drive Time (min)\"]","values":"[\"{{row.Address}}\",\"{{minutes}}\"]"]),
+            Step(.endLoop,"Next address")
+        ])
+        a.inputs = [Parameter("file",root+"/addresses.csv")]
+        a.suggestedTriggers = [RunTrigger(),RunTrigger("file",title:"When an address list arrives in this folder",value:root,app:"csv")]
+        return a
     }
     public static func cleanup(root: String) -> Automation {
         var a = Automation(name:"Clean a downloaded CSV",description:"Keep names and amounts, trim spaces, read amounts as numbers, and sort by name. Save a new clean file next to the original.",steps:[

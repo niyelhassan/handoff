@@ -47,10 +47,10 @@ public struct Judgment: Codable {
 public enum Operation: String, Codable, CaseIterable {
     case openApp, openURL, waitForElement, readText, setValue, click, chooseMenu, pressShortcut, readURL, copyText, pasteValue
     case waitForFile, renameFile, moveFile, copyFile, openFile, revealFile
-    case readCSV, appendCSV, transformTable, writeCSV, resizeImage, convertImage
+    case readCSV, appendCSV, transformTable, writeCSV, resizeImage, convertImage, driveTime
     case numbersAppend, numbersRead, excelAppend, excelRead, mailRead, notesAppend, runShortcut
     case forEach, endLoop, ifMatches, endIf, ask
-    public var touchesUI: Bool { ![.waitForFile,.renameFile,.moveFile,.copyFile,.readCSV,.appendCSV,.transformTable,.writeCSV,.resizeImage,.convertImage,.forEach,.endLoop,.ifMatches,.endIf,.ask].contains(self) }
+    public var touchesUI: Bool { ![.waitForFile,.renameFile,.moveFile,.copyFile,.readCSV,.appendCSV,.transformTable,.writeCSV,.resizeImage,.convertImage,.driveTime,.forEach,.endLoop,.ifMatches,.endIf,.ask].contains(self) }
     public var irreversible: Bool { [.click,.chooseMenu,.pressShortcut,.pasteValue,.numbersAppend,.excelAppend,.notesAppend,.runShortcut,.openURL].contains(self) }
 }
 public struct Parameter: Codable, Equatable {

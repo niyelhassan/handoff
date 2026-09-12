@@ -141,10 +141,12 @@ import ScoutCore
         if NSApp.currentSystemPresentationOptions.contains(.fullScreen) { return }
         detect()
     }
-    func detect() {
+    func detect(prefer: Set<String> = []) {
         do {
             let suppressions = try memory.all(Suppression.self,kind:"suppression")
-            guard let found = PatternFinder().candidates(try memory.events(limit:2000)).first(where: { c in !judging.contains(c.id) && !suppressions.contains { $0.id == c.id && $0.until > Date() } }) else { return }
+            let candidates = PatternFinder().candidates(try memory.events(limit:2000))
+            let eligible: (Candidate) -> Bool = { c in !self.judging.contains(c.id) && !suppressions.contains { $0.id == c.id && $0.until > Date() } }
+            guard let found = candidates.first(where: { prefer.contains($0.id) && eligible($0) }) ?? candidates.first(where:eligible) else { return }
             judging.insert(found.id); busy = true
             Task {
                 defer { busy = false }
@@ -238,7 +240,8 @@ import ScoutCore
     @discardableResult func prepareDemo() throws -> URL {
         let root = demoRoot; try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
         // Reset the outputs of earlier tries so the routines can run again from a clean start.
-        for leftover in ["Invoices","Web","sales-0-clean.csv"] { try? FileManager.default.removeItem(at:root.appendingPathComponent(leftover)) }
+        for leftover in ["Invoices","Web","sales-0-clean.csv","addresses-drive-times.csv"] { try? FileManager.default.removeItem(at:root.appendingPathComponent(leftover)) }
+        try Fixtures.addressesCSV.write(to:root.appendingPathComponent("addresses.csv"),atomically:true,encoding:.utf8)
         for stale in (try? FileManager.default.contentsOfDirectory(atPath:root.path)) ?? [] where stale.hasSuffix("-resized.png") { try? FileManager.default.removeItem(at:root.appendingPathComponent(stale)) }
         try "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n".write(to:root.appendingPathComponent("sales-0.csv"),atomically:true,encoding:.utf8)
         try "Name,Email\nAda,ada@example.test\nBea,bea@example.test\nCy,cy@example.test\n".write(to:root.appendingPathComponent("people.csv"),atomically:true,encoding:.utf8)
@@ -266,12 +269,13 @@ import ScoutCore
     /// detection path: pattern finder → Grok judge → suggestion notification and card → Automate → Grok build → review → Try it.
     func demo(_ shape: String = "transform") {
         do {
+            if policy.paused { pause(0) }
             let root = try prepareDemo()
             // Forget earlier replays of this case so the suggestion can appear again.
             let previous = PatternFinder().candidates(Fixtures.evidence(shape,root:root.path)).map(\.id)
             for id in previous { try memory.delete(kind:"suppression",id:id); judging.remove(id) }
             for e in Fixtures.evidence(shape,root:root.path) { try memory.add(e) }
-            replayedShape = shape; candidate = nil; judgment = nil; lastSuggestion = .distantPast; reload(); detect()
+            replayedShape = shape; candidate = nil; judgment = nil; lastSuggestion = .distantPast; reload(); detect(prefer:Set(previous))
             if candidate == nil && !busy { error = "No routine was found in the replayed activity. Try again after a moment." }
         } catch { self.error = error.localizedDescription }
     }

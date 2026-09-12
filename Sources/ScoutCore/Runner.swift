@@ -170,6 +170,9 @@ public extension UIExecuting {
         case .writeCSV:
             guard let table = record.tables[args["table"]!] else { throw ScoutError.message("The table has not been read yet.") }
             try write(Data(table.csv.utf8),to:file(args["path"]!),record:&record,allowExisting:false)
+        case .driveTime:
+            let minutes = try await TravelTime.minutes(from:args["origin"]!,to:args["destination"]!)
+            record.values[args["output"]!] = minutes
         case .appendCSV:
             let url = try file(args["path"]!); let columns = try JSONDecoder().decode([String].self,from:Data(args["columns"]!.utf8)); let values = try JSONDecoder().decode([String].self,from:Data(args["values"]!.utf8))
             guard columns.count == values.count, !columns.isEmpty, Set(columns).count == columns.count else { throw ScoutError.message("Each column needs exactly one value.") }
