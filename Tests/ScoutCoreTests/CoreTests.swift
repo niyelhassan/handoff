@@ -1,4 +1,6 @@
 import Foundation
+import CoreGraphics
+import ImageIO
 import ScoutCore
 
 final class CoreTests {
@@ -78,13 +80,13 @@ final class CoreTests {
     @MainActor func testRealCSVEndToEndFiveTimesAndUndo() async throws {
         let root = try temporary(); let db = try Memory(path:root.appendingPathComponent("memory.sqlite").path); let runner = Runner(memory:db)
         let source = "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n"
-        try source.write(to:root.appendingPathComponent("sales.csv"),atomically:true,encoding:.utf8)
+        try source.write(to:root.appendingPathComponent("sales-0.csv"),atomically:true,encoding:.utf8)
         for _ in 0..<5 {
             let run = try await runner.run(Fixtures.cleanup(root:root.path))
             XCTAssertEqual(run.status,"succeeded",run.message)
-            XCTAssertEqual(try Table.parse(String(contentsOf:root.appendingPathComponent("clean.csv"))),Table(columns:["Name","Amount"],rows:[["Ada","10"],["Bea","20"]]))
-            let undone = try runner.undo(run); XCTAssertEqual(undone.status,"undone"); XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent("clean.csv").path))
-            XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("sales.csv")),source)
+            XCTAssertEqual(try Table.parse(String(contentsOf:root.appendingPathComponent("sales-0-clean.csv"))),Table(columns:["Name","Amount"],rows:[["Ada","10"],["Bea","20"]]))
+            let undone = try runner.undo(run); XCTAssertEqual(undone.status,"undone"); XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent("sales-0-clean.csv").path))
+            XCTAssertEqual(try String(contentsOf:root.appendingPathComponent("sales-0.csv")),source)
         }
     }
     @MainActor func testUndoProtectsEditsAndMoveRoundTrip() async throws {
@@ -122,11 +124,113 @@ final class CoreTests {
         XCTAssertEqual(try Triggers(memory:db).scheduled(automations:[a],now:now.addingTimeInterval(86400),calendar:calendar).count,1)
     }
     func testAIJSONSchemaSerialization() throws { XCTAssertNoThrow(try JSONSerialization.data(withJSONObject:Catalog.buildSchema)); XCTAssertNoThrow(try JSONSerialization.data(withJSONObject:Catalog.judgeSchema)) }
-    func testLiveGrokJudgeAndBuild() async throws {
+    func testAllFiveDemoPatternsDetected() throws {
+        for shape in Fixtures.shapes {
+            let candidates = PatternFinder().candidates(Fixtures.evidence(shape))
+            XCTAssertEqual(candidates.count,1,shape); XCTAssertEqual(candidates.first?.shape,shape == "collect" ? candidates.first?.shape : shape,shape); XCTAssertEqual(candidates.first?.count,3,shape)
+        }
+    }
+    @MainActor func testReferencePlansRunForFileCases() async throws {
+        let root = try temporary(); try demoFiles(root)
+        let db = try Memory(path:":memory:"); let runner = Runner(memory:db)
+        for shape in ["transform","pipeline","image"] {
+            let plan = Fixtures.plan(shape,root:root.path); try Catalog.validate(plan)
+            let run = try await runner.run(plan); XCTAssertEqual(run.status,"succeeded",shape+": "+run.message)
+            try verifyOutputs(shape,root:root)
+            _ = try runner.undo(run)
+        }
+    }
+    /// Judges, builds, validates and (where no other app is needed) runs all five demo routines through the real Grok API.
+    @MainActor func testLiveGrokAllFiveCases() async throws {
         guard ProcessInfo.processInfo.environment["SCOUT_LIVE_TEST"] == "1" else { throw XCTSkip("Set SCOUT_LIVE_TEST=1 to test the real API using synthetic examples.") }
-        let candidate = try XCTUnwrap(PatternFinder().candidates(Fixtures.evidence("transform")).first)
-        let ai = AIClient(); ai.onBuild = { a in print("  Live plan operations: "+a.steps.map { $0.operation.rawValue+"("+$0.parameters.map { $0.key }.joined(separator:",")+")" }.joined(separator:", ")) }; let judgment = try await ai.judge(candidate)
-        XCTAssertTrue(judgment.isRoutine); XCTAssertTrue(judgment.automatable)
-        let a = try await ai.build(candidate); XCTAssertFalse(a.steps.isEmpty); try Catalog.validate(a)
+        guard KeyStore.available else { throw ScoutError.message("No Grok API key found (XAI_API_KEY or the key file).") }
+        let root = try temporary(); try demoFiles(root)
+        let planDirectory = URL(fileURLWithPath:ProcessInfo.processInfo.environment["SCOUT_PLAN_DIR"] ?? FileManager.default.currentDirectoryPath+"/TestResults/grok-plans"); try FileManager.default.createDirectory(at:planDirectory,withIntermediateDirectories:true)
+        let ai = AIClient(model:ProcessInfo.processInfo.environment["SCOUT_MODEL"] ?? AIClient.defaultModel)
+        let db = try Memory(path:":memory:"); let runner = Runner(memory:db); runner.onAsk = { _ in true }
+        var failures: [String] = []
+        for shape in Fixtures.shapes {
+            let candidate = try XCTUnwrap(PatternFinder().candidates(Fixtures.evidence(shape,root:root.path)).first)
+            do {
+                let t0 = Date(); let judgment = try await ai.judge(candidate); let judgeTime = Int(Date().timeIntervalSince(t0))
+                print("  \(shape) judge (\(judgeTime)s): routine=\(judgment.isRoutine) automatable=\(judgment.automatable) “\(judgment.name)” — \(judgment.reason)")
+                guard judgment.isRoutine, judgment.automatable else { failures.append("\(shape): Grok did not consider it automatable (\(judgment.reason))"); continue }
+                let t1 = Date(); let plan = try await ai.build(candidate); print("  \(shape) build took \(Int(Date().timeIntervalSince(t1)))s")
+                let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted,.sortedKeys]
+                try encoder.encode(plan).write(to:planDirectory.appendingPathComponent(shape+".json"))
+                print("  \(shape) plan “\(plan.name)”: "+plan.steps.map { $0.operation.rawValue+($0.target.map { "[\($0.label.isEmpty ? $0.identifier : $0.label)]" } ?? "")+"("+$0.parameters.filter { !$0.value.isEmpty }.map { $0.key+"="+$0.value.prefix(40) }.joined(separator:", ")+")" }.joined(separator:" → "))
+                print("  \(shape) triggers: "+plan.suggestedTriggers.map { $0.kind+($0.value.isEmpty ? "" : ":"+$0.value)+($0.app.isEmpty ? "" : "@"+$0.app) }.joined(separator:", "))
+                try Catalog.validate(plan)
+                switch shape {
+                case "transform","pipeline","image":
+                    try demoFiles(root)
+                    let run = try await runner.run(plan); guard run.status == "succeeded" else { failures.append("\(shape): run \(run.status): \(run.message)"); continue }
+                    try verifyOutputs(shape,root:root)
+                    XCTAssertTrue(plan.suggestedTriggers.contains { $0.kind == "file" },"\(shape) should suggest a file trigger")
+                case "loop":
+                    let ops = plan.steps.map(\.operation)
+                    guard ops.contains(.forEach), ops.contains(.endLoop), ops.contains(.readCSV) else { failures.append("loop: missing readCSV/forEach"); continue }
+                    let labels = plan.steps.filter { [.setValue,.pasteValue].contains($0.operation) }.compactMap { $0.target?.label.lowercased() }
+                    guard labels.contains("name"), labels.contains("email") else { failures.append("loop: fills \(labels), expected name and email"); continue }
+                    guard let submit = plan.steps.firstIndex(where: { $0.operation == .click }), submit > 0, plan.steps[submit-1].operation == .ask else { failures.append("loop: submit must be preceded by ask"); continue }
+                    guard plan.steps.allSatisfy({ $0.target == nil || $0.target?.app == "com.apple.Safari" }) else { failures.append("loop: wrong app"); continue }
+                default:
+                    let reads = plan.steps.filter { [.readText,.copyText].contains($0.operation) }.compactMap { $0.target?.label.lowercased() }
+                    guard reads.contains("listing name"), reads.contains("price") else { failures.append("collect: reads \(reads), expected listing name and price"); continue }
+                    guard plan.steps.contains(where: { $0.operation == .readURL }), plan.steps.contains(where: { $0.operation == .appendCSV || $0.operation == .numbersAppend }) else { failures.append("collect: expected readURL and appendCSV"); continue }
+                }
+            } catch { failures.append("\(shape): \(error.localizedDescription)") }
+        }
+        XCTAssertTrue(failures.isEmpty,failures.joined(separator:" | "))
+    }
+    func testPlanRepairGuardrails() throws {
+        let sloppy = Automation(name:"x",description:"",steps:[
+            Step(.readCSV,"Read destination",["path":"/tmp/out.csv","output":"existing"]),
+            Step(.readCSV,"Read people",["path":"/tmp/people.csv","output":"people"]),
+            Step(.forEach,"Loop",["source":"{{people}}","item":"row"]),
+            Step(.readURL,"Link",["output":"url"]),
+            Step(.setValue,"Name",["value":"{{row.Name}}"],target:Target(app:"com.apple.Safari",role:"AXTextField",label:"Name")),
+            Step(.click,"Submit",target:Target(app:"com.apple.Safari",role:"AXButton",label:"Submit")),
+            Step(.endLoop,"End")
+        ])
+        let repaired = AIClient.repair(sloppy)
+        XCTAssertEqual(repaired.steps.map(\.operation),[.readCSV,.forEach,.readURL,.setValue,.ask,.click,.endLoop])
+        XCTAssertEqual(repaired.steps[0].args["output"],"people")
+        XCTAssertEqual(repaired.steps[2].target?.app,"com.apple.Safari")
+        XCTAssertEqual(Set(repaired.steps.map(\.id)).count,repaired.steps.count)
+        // File binding turns the observed input into variables.
+        let candidate = try XCTUnwrap(PatternFinder().candidates(Fixtures.evidence("pipeline",root:"/tmp/RS")).first)
+        let literal = Automation(name:"y",description:"",steps:[Step(.moveFile,"Move",["source":"/tmp/RS/invoice-8731.pdf","destination":"/tmp/RS/Invoices/\(Runner.dateString(Date()))-invoice-8731.pdf"])])
+        let bound = AIClient.bindFiles(literal,candidate:candidate)
+        XCTAssertEqual(bound.steps[0].args["source"],"{{file}}"); XCTAssertEqual(bound.steps[0].args["destination"],"{{folder}}/Invoices/{{today}}-{{stem}}.pdf"); XCTAssertEqual(bound.inputs.first?.value,"/tmp/RS/invoice-8731.pdf")
+    }
+    func demoFiles(_ root: URL) throws {
+        for stale in (try? FileManager.default.contentsOfDirectory(atPath:root.path)) ?? [] where stale.hasSuffix("-clean.csv") || stale.hasSuffix("-resized.png") || ["Invoices","Web"].contains(stale) { try? FileManager.default.removeItem(at:root.appendingPathComponent(stale)) }
+        try "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n".write(to:root.appendingPathComponent("sales-0.csv"),atomically:true,encoding:.utf8)
+        try "Name,Price,Link\n".write(to:root.appendingPathComponent("Apartment Search.csv"),atomically:true,encoding:.utf8)
+        try "Name,Email\nAda,ada@example.test\nBea,bea@example.test\nCy,cy@example.test\n".write(to:root.appendingPathComponent("people.csv"),atomically:true,encoding:.utf8)
+        try Data("%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n".utf8).write(to:root.appendingPathComponent("invoice-8731.pdf"))
+        try samplePNG(width:1440,height:900).write(to:root.appendingPathComponent("Screenshot \(Runner.dateString(Date())) at 10.00.png"))
+    }
+    func samplePNG(width: Int, height: Int) throws -> Data {
+        guard let context = CGContext(data:nil,width:width,height:height,bitsPerComponent:8,bytesPerRow:0,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue), let image = context.makeImage() else { throw ScoutError.message("no image") }
+        let output = NSMutableData(); guard let writer = CGImageDestinationCreateWithData(output,"public.png" as CFString,1,nil) else { throw ScoutError.message("no writer") }
+        CGImageDestinationAddImage(writer,image,nil); CGImageDestinationFinalize(writer); return output as Data
+    }
+    func verifyOutputs(_ shape: String, root: URL) throws {
+        let files = (try? FileManager.default.subpathsOfDirectory(atPath:root.path)) ?? []
+        switch shape {
+        case "transform":
+            let clean = files.first { $0.hasSuffix("-clean.csv") }; XCTAssertNotNil(clean,"clean CSV written")
+            if let clean { XCTAssertEqual(try Table.parse(String(contentsOf:root.appendingPathComponent(clean),encoding:.utf8)).rows,[["Ada","10"],["Bea","20"]]) }
+        case "pipeline":
+            XCTAssertFalse(FileManager.default.fileExists(atPath:root.appendingPathComponent("invoice-8731.pdf").path),"invoice moved out of the download folder")
+            let filed = files.first { $0.hasPrefix("Invoices/") && $0.hasSuffix(".pdf") && $0.contains("8731") && $0.contains(Runner.dateString(Date())) }
+            XCTAssertNotNil(filed,"invoice filed with today's date: \(files)")
+        default:
+            let web = files.first { $0.lowercased().hasSuffix(".jpg") || $0.lowercased().hasSuffix(".jpeg") }; XCTAssertNotNil(web,"JPEG written: \(files)")
+            if let web, let source = CGImageSourceCreateWithURL(root.appendingPathComponent(web) as CFURL,nil), let properties = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [String:Any] { XCTAssertEqual(properties[kCGImagePropertyPixelWidth as String] as? Int,1280,"resized to 1280 wide") } else { XCTFail("JPEG unreadable") }
+        }
     }
 }
+func XCTAssertNotNil<T>(_ value: @autoclosure () throws -> T?,_ message: String = "",file: StaticString = #filePath,line: UInt = #line) { do { if try value() == nil { fail("Expected a value. "+message,file:file,line:line) } } catch { fail(error.localizedDescription,file:file,line:line) } }

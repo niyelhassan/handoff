@@ -39,7 +39,12 @@ public struct PatternFinder {
             let kinds = items.map { $0.event.kind }
             let apps = Set(items.map { $0.event.app })
             let loop = Set(accepted.map { $0.episode }).count == 1 && kinds.contains("submit")
-            let shape = kinds.contains("export") && kinds.contains("file") ? "transform" : loop ? "loop" : kinds.contains("file") && apps.count > 1 ? "pipeline" : kinds.filter { $0 == "paste" }.count >= 2 ? "transfer" : "collect"
+            let files = items.filter { $0.event.kind == "file" }
+            let csvFiles = files.filter { $0.event.role.lowercased() == "csv" }.count
+            let imageFiles = files.filter { ["png","jpg","jpeg","tiff","heic"].contains($0.event.role.lowercased()) }.count
+            // Shapes: transform = a table went in and a table came out; image = a picture went in and a picture came out;
+            // pipeline = a file moved through more than one app; loop = repeated submissions in one sitting; transfer/collect = copy and paste flows.
+            let shape = csvFiles >= 2 && kinds.contains("export") ? "transform" : loop ? "loop" : imageFiles >= 2 ? "image" : kinds.contains("file") && apps.count > 1 ? "pipeline" : kinds.filter { $0 == "paste" }.count >= 2 ? "transfer" : "collect"
             guard accepted.count >= (["loop","transform"].contains(shape) ? 2 : 3) else { continue }
             found.append(Candidate(id:digest(key),shape:shape,instances:accepted.map { Array(episodes[$0.episode][$0.start..<($0.start+$0.length)]) },score:Double(accepted.count*items.count)))
         }

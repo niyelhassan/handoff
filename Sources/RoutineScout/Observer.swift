@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import CoreServices
+import ImageIO
 import ScoutCore
 
 @MainActor final class Observer {
@@ -134,10 +135,14 @@ import ScoutCore
     var ignoredPaths: [String] = []
     private func fileChanged(_ path: String) {
         guard !runningAutomation, context() != nil, !path.contains("/Library/"), !path.contains("/."), !ignoredPaths.contains(where: { path.hasPrefix($0) }), Date().timeIntervalSince(fileSeen[path] ?? .distantPast) > 3 else { return }
-        let url = URL(fileURLWithPath:path); guard ["csv","png","jpg","jpeg","xlsx","numbers"].contains(url.pathExtension.lowercased()) else { return }
+        let url = URL(fileURLWithPath:path); let ext = url.pathExtension.lowercased()
+        guard ["csv","png","jpg","jpeg","tiff","heic","pdf","xlsx","numbers"].contains(ext) else { return }
         fileSeen[path] = Date(); if fileSeen.count > 1000 { fileSeen = fileSeen.filter { Date().timeIntervalSince($0.value) < 3600 } }
-        var details = ["path":path,"extension":url.pathExtension,"folder":url.deletingLastPathComponent().path]
-        if url.pathExtension.lowercased() == "csv", let attributes = try? FileManager.default.attributesOfItem(atPath:path), (attributes[.size] as? NSNumber)?.intValue ?? 100000 > 0, (attributes[.size] as? NSNumber)?.intValue ?? 100000 < 65536, let data = try? String(contentsOf:url,encoding:.utf8) { details["csv"] = data }
-        guard let c = context() else { return }; var event = Event(app:c.app,kind:"file",role:url.pathExtension,context:c.url.host ?? "",instance:digest(path)); event.selfGenerated = runningAutomation; onEvent?(Evidence(event,details))
+        var details = ["path":path,"extension":ext,"folder":url.deletingLastPathComponent().path]
+        let size = (try? FileManager.default.attributesOfItem(atPath:path))?[.size] as? NSNumber
+        if ext == "csv", let size, size.intValue > 0, size.intValue < 65536, let data = try? String(contentsOf:url,encoding:.utf8) { details["csv"] = data }
+        // Image dimensions only (no pixels are stored) so a resize can later be recognised.
+        if ["png","jpg","jpeg","tiff","heic"].contains(ext), let source = CGImageSourceCreateWithURL(url as CFURL,nil), let properties = CGImageSourceCopyPropertiesAtIndex(source,0,nil) as? [String:Any], let w = properties[kCGImagePropertyPixelWidth as String] as? Int, let h = properties[kCGImagePropertyPixelHeight as String] as? Int { details["pixels"] = "\(w)x\(h)" }
+        guard let c = context() else { return }; var event = Event(app:c.app,kind:"file",role:ext,context:c.url.host ?? "",instance:digest(path)); event.selfGenerated = runningAutomation; onEvent?(Evidence(event,details))
     }
 }

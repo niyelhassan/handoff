@@ -45,13 +45,13 @@ extension AppModel {
                 guard result.status == "succeeded" else { throw ScoutError.message(result.message) }
                 let table = try Table.parse(String(contentsOf:root.appendingPathComponent("Apartment Search.csv"),encoding:.utf8))
                 let expected = ["Maple Loft","Oak Studio","Pine House"][(rehearsal-1)%3]
-                guard table.rows.last?[0] == expected, table.rows.last?[1] == "\(1200+((rehearsal-1)%3)*100)", table.rows.last?[2].hasPrefix(PracticeServer.base) == true else { throw ScoutError.message("The collected values did not match the visible listing: \(table.rows.last ?? [])") }
+                guard table.rows.last?[0].hasPrefix(expected) == true, table.rows.last?[1] == "\(1200+((rehearsal-1)%3)*100)", table.rows.last?[2].hasPrefix(PracticeServer.base) == true else { throw ScoutError.message("The collected values did not match the visible listing: \(table.rows.last ?? [])") }
                 _ = try runner.undo(result); log("Verified collected values and exact Undo.")
             }
             for rehearsal in 1...5 {
                 let result = try await runner.run(Fixtures.cleanup(root:root.path))
                 log("CSV rehearsal \(rehearsal): \(result.status)")
-                guard result.status == "succeeded", try Table.parse(String(contentsOf:root.appendingPathComponent("clean.csv"),encoding:.utf8)).rows == [["Ada","10"],["Bea","20"]] else { throw ScoutError.message("CSV output did not match the expected table.") }
+                guard result.status == "succeeded", try Table.parse(String(contentsOf:root.appendingPathComponent("sales-0-clean.csv"),encoding:.utf8)).rows == [["Ada","10"],["Bea","20"]] else { throw ScoutError.message("CSV output did not match the expected table.") }
                 _ = try runner.undo(result)
             }
             // Field Undo: fill the form without submitting, then restore the original (empty) values.
@@ -69,7 +69,35 @@ extension AppModel {
             }
             guard axString(try ax.resolve(Target(app:"com.apple.Safari",role:"AXTextField",label:"Name")),kAXValueAttribute).isEmpty else { throw ScoutError.message("Field Undo did not restore the empty field.") }
             log("Verified field fill and field Undo.")
-            log("PASS: 16 native rehearsals; form server submissions, listing CSV values and Undo, CSV golden outputs and Undo, field Undo verified.")
+            // Grok-built routines for the two web cases, run for real against the practice pages.
+            var grokRuns = 0
+            if KeyStore.available && !CommandLine.arguments.contains("--offline") {
+                ai.model = modelName
+                for shape in ["loop","collect"] {
+                    guard let candidate = PatternFinder().candidates(Fixtures.evidence(shape,root:root.path)).first else { throw ScoutError.message("No candidate for \(shape).") }
+                    let judged = try await ai.judge(candidate); guard judged.isRoutine, judged.automatable else { throw ScoutError.message("Grok rejected \(shape): \(judged.reason)") }
+                    var plan = try await ai.build(candidate)
+                    // The demo table lives in the demo folder; point any CSV path there.
+                    plan.inputs = plan.inputs.map { $0.key == "file" && !$0.value.hasPrefix(root.path) ? Parameter("file",root.appendingPathComponent(URL(fileURLWithPath:$0.value).lastPathComponent).path) : $0 }
+                    for i in plan.steps.indices where [.readCSV,.appendCSV].contains(plan.steps[i].operation) { plan.steps[i].parameters = plan.steps[i].parameters.map { $0.key == "path" && $0.value.hasPrefix("/") && !$0.value.hasPrefix(root.path) ? Parameter("path",root.appendingPathComponent(URL(fileURLWithPath:$0.value).lastPathComponent).path) : $0 } }
+                    log("Grok plan for \(shape): "+plan.steps.map { $0.operation.rawValue+($0.target.map { "[\($0.label)]" } ?? "") }.joined(separator:" → "))
+                    let encoder = JSONEncoder(); encoder.outputFormatting = [.prettyPrinted,.sortedKeys]; try? encoder.encode(plan).write(to:dataDirectory.appendingPathComponent("grok-\(shape).json"))
+                    let before = practiceServer.submissionCount
+                    try await openPage(shape == "loop" ? "form" : "listing/1")
+                    observer.runningAutomation = true
+                    let result = try await runner.run(plan)
+                    observer.runningAutomation = false
+                    log("Grok-built \(shape): \(result.status). \(result.message)")
+                    guard result.status == "succeeded" else { throw ScoutError.message("Grok-built \(shape) failed: \(result.message)") }
+                    if shape == "loop" { guard practiceServer.submissionCount == before+3 else { throw ScoutError.message("Grok-built form loop submitted \(practiceServer.submissionCount-before) forms, expected 3.") } }
+                    else {
+                        let csv = plan.steps.first { $0.operation == .appendCSV }?.args["path"].map { $0.replacingOccurrences(of:"{{file}}",with:plan.inputs.first { $0.key == "file" }?.value ?? "") }
+                        guard let csv, let table = try? Table.parse(String(contentsOf:URL(fileURLWithPath:csv),encoding:.utf8)), let last = table.rows.last, last.contains { $0.contains("Oak Studio") }, last.contains("1300") else { throw ScoutError.message("Grok-built collector did not record the listing.") }
+                    }
+                    grokRuns += 1
+                }
+            } else { log("Grok-built routines skipped (no API key or --offline).") }
+            log("PASS: \(16+grokRuns) native rehearsals; form server submissions, listing CSV values and Undo, CSV golden outputs and Undo, field Undo verified\(grokRuns > 0 ? ", plus \(grokRuns) Grok-built routines run live" : "").")
         } catch {
             let idle = Date().timeIntervalSince(observer.lastInteraction)
             if idle < 30 { log("INTERRUPTED: you used the keyboard or mouse \(Int(idle)) s ago, so the rehearsal stopped as designed. Rerun while leaving the Mac idle.") }

@@ -14,7 +14,7 @@ func XCTUnwrap<T>(_ value: T?) throws -> T { guard let value else { throw ScoutE
 struct XCTSkip: Error { var message: String; init(_ message: String) { self.message = message } }
 @main struct TestMain {
     @MainActor static func main() async {
-        if CommandLine.arguments.contains("--store-key") { do { let data = FileHandle.standardInput.readDataToEndOfFile(); try KeyStore.save(String(decoding:data,as:UTF8.self)); print("API key saved in Keychain.") } catch { print(error.localizedDescription); exit(1) }; return }
+        if CommandLine.arguments.contains("--store-key") { do { let data = FileHandle.standardInput.readDataToEndOfFile(); try KeyStore.save(String(decoding:data,as:UTF8.self)); print("API key saved.") } catch { print(error.localizedDescription); exit(1) }; return }
         let suite = CoreTests(); var passed = 0; var skipped = 0
         func run(_ name: String,_ body: () async throws -> Void) async { let before = assertionFailures; do { try await body(); if assertionFailures == before { passed += 1; print("PASS \(name)") } } catch let skip as XCTSkip { skipped += 1; print("SKIP \(name): \(skip.message)") } catch { assertionFailures += 1; print("FAIL \(name): \(error)") }; suite.cleanup() }
         await run("CSV quoted Unicode and CRLF") { try suite.testCSVQuotedUnicodeAndCRLF() }
@@ -30,7 +30,10 @@ struct XCTSkip: Error { var message: String; init(_ message: String) { self.mess
         await run("Uncertain action refuses replay") { try await suite.testUncertainActionWillNotRepeat() }
         await run("Schedule catch-up dedup across restart") { try suite.testTriggerDedupAfterRestart() }
         await run("AI JSON schemas") { try suite.testAIJSONSchemaSerialization() }
-        await run("Live Grok judge and build") { try await suite.testLiveGrokJudgeAndBuild() }
+        await run("All five demo patterns detected") { try suite.testAllFiveDemoPatternsDetected() }
+        await run("Reference plans run for file cases") { try await suite.testReferencePlansRunForFileCases() }
+        await run("Plan repair guardrails and file binding") { try suite.testPlanRepairGuardrails() }
+        await run("Live Grok: all five cases") { try await suite.testLiveGrokAllFiveCases() }
         print("\n\(passed) passed, \(skipped) skipped, \(assertionFailures) assertion failures")
         exit(assertionFailures == 0 ? 0 : 1)
     }

@@ -13,7 +13,7 @@ sleep 1
 # Launch through LaunchServices so the app is its own "responsible process" for the Accessibility permission.
 # Launching the binary directly from a terminal would make macOS check the terminal's permission instead.
 open -n -g "$SCOUT_APP" --args --self-test "$RESULTS" --background --exit-after-test
-for _ in {1..240}; do
+for _ in {1..900}; do
   if grep -qE '^(PASS|FAIL|BLOCKED)' "$RESULTS/integration-report.txt" 2>/dev/null; then break; fi
   sleep 1
 done

@@ -141,7 +141,7 @@ struct ScoutView: View {
             Toggle("Share repeated examples with Grok",isOn:$model.sharing).onChange(of:model.sharing) { model.savePolicy() }
             Text("Only a few examples of a detected routine are sent. Use What I remember to inspect local activity.").font(.caption).foregroundStyle(.secondary)
             HStack { SecureField("Grok API key",text:$key); Button("Save key") { do { try KeyStore.save(key); key = "" } catch { model.error = error.localizedDescription } }.disabled(key.isEmpty) }
-            Text(KeyStore.read() == nil ? "No API key saved." : "API key saved in macOS Keychain.").font(.caption).foregroundStyle(.secondary)
+            Text(KeyStore.read() == nil ? "No API key saved." : "API key saved privately on this Mac.").font(.caption).foregroundStyle(.secondary)
             HStack { TextField("Grok model",text:$model.modelName); Button("Save") { model.savePolicy() } }
             Toggle("Start at login",isOn:Binding(get:{ SMAppService.mainApp.status == .enabled },set:{ value in do { if value { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() } } catch { model.error = error.localizedDescription } }))
             Divider(); Text("Apps to ignore").font(.headline)
@@ -150,13 +150,14 @@ struct ScoutView: View {
             Text("Websites to ignore").font(.headline)
             Text(model.policy.ignoredSites.joined(separator:", ")).font(.caption)
             HStack { TextField("Website, for example example.com",text:$ignoredSite); Button("Add") { let raw = ignoredSite.lowercased().trimmingCharacters(in:.whitespacesAndNewlines); if !raw.isEmpty { model.policy.ignoredSites.append(URL(string:raw.contains("://") ? raw : "https://"+raw)?.host ?? raw); ignoredSite = ""; model.savePolicy() } } }
-            Divider(); Text("Try a local example").font(.headline)
-            Text("Replay three recorded repetitions to see a suggestion appear, or jump straight to a ready-made routine on a local practice page. Example files live in the app’s own folder, never among your files. Examples use saved offline plans, so no API key is needed.").font(.caption).foregroundStyle(.secondary)
+            Divider(); Text("Try an example").font(.headline)
+            Text("Replay three recorded repetitions of a routine: Routine Scout notices it, asks Grok whether it is worth automating, and offers it just like it would after watching you. Sample files live in Downloads › Routine Scout Demo; practice web pages run locally in Safari.").font(.caption).foregroundStyle(.secondary)
             Text("Replay a routine being repeated").font(.subheadline)
-            HStack { Button("CSV cleanup") { model.demo("transform") }; Button("Form from a table") { model.demo("loop") }; Button("Listing collection") { model.demo("collect") } }.disabled(model.busy)
-            Text("Open a ready-made routine").font(.subheadline)
-            HStack { Button("Fill a local form") { model.practice("form") }; Button("Collect a local listing") { model.practice("collect") } }.disabled(model.busy)
-            Toggle("Use offline demo responses instead of Grok",isOn:$model.offline)
+            HStack { ForEach(Fixtures.shapes,id:\.self) { shape in Button(Fixtures.title(shape)) { model.demo(shape) } } }.disabled(model.busy)
+            Text("Open a ready-made routine (skips detection)").font(.subheadline)
+            HStack { ForEach(Fixtures.shapes,id:\.self) { shape in Button(Fixtures.title(shape)) { model.practice(shape) } } }.disabled(model.busy)
+            Toggle("Use saved offline plans instead of Grok",isOn:$model.offline)
+            if !model.aiLog.isEmpty { DisclosureGroup("Recent Grok responses") { ForEach(Array(model.aiLog.reversed().enumerated()),id:\.offset) { _,entry in Text(entry).font(.system(.caption,design:.monospaced)).textSelection(.enabled).padding(.bottom,6) } } }
             Divider(); Button("Delete everything",role:.destructive) { confirmErase = true }
         }
     }

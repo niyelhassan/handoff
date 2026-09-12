@@ -67,12 +67,16 @@ public extension UIExecuting {
     public var stopRequested = false
     public init(memory: Memory, ui: UIExecuting? = nil) { self.memory = memory; self.ui = ui }
     public func stop() { stopRequested = true }
+    /// yyyy-MM-dd in the user's calendar; the value of {{today}}.
+    public nonisolated static func dateString(_ date: Date) -> String { let f = DateFormatter(); f.locale = Locale(identifier:"en_US_POSIX"); f.dateFormat = "yyyy-MM-dd"; return f.string(from:date) }
     private func save(_ record: inout RunRecord) throws { record.updated = Date(); try memory.save(record,kind:"runs",id:record.id); active = record; onChange?(record) }
     public func run(_ automation: Automation, values: [String:String] = [:], resume: RunRecord? = nil) async throws -> RunRecord {
         guard active == nil else { throw ScoutError.message("Another routine is already running.") }
         try Catalog.validate(automation)
         var initial = Dictionary(automation.inputs.map { ($0.key,$0.value) },uniquingKeysWith: { _,b in b }); initial.merge(values,uniquingKeysWith: { _,b in b })
-        if let path = initial["file"] { let url = URL(fileURLWithPath:path); initial["folder"] = url.deletingLastPathComponent().path; initial["stem"] = url.deletingPathExtension().lastPathComponent; initial["filename"] = url.lastPathComponent }
+        if let path = initial["file"] { let url = URL(fileURLWithPath:path); initial["folder"] = url.deletingLastPathComponent().path; initial["stem"] = url.deletingPathExtension().lastPathComponent; initial["filename"] = url.lastPathComponent; initial["ext"] = url.pathExtension }
+        initial["today"] = initial["today"] ?? Self.dateString(Date())
+        initial["home"] = FileManager.default.homeDirectoryForCurrentUser.path
         var record = resume ?? RunRecord(automation,values:initial)
         guard record.pending == nil else { throw ScoutError.message("The app stopped during an action. Inspect its result before retrying; it will not repeat an uncertain action.") }
         guard Date().timeIntervalSince(record.started) < 48*3600 else { throw ScoutError.message("This run is too old to resume. Its temporary inputs have expired.") }
@@ -89,9 +93,12 @@ public extension UIExecuting {
                 let args = try step.args.mapValues { try interpolateArgument($0,values:record.values) }
                 if step.operation == .forEach {
                     let end = try matchingEnd(automation.steps,start:record.pc,opening:.forEach,closing:.endLoop)
-                    let source = args["source"]!; let rows: [[String:String]]
-                    if let table = record.tables[source] { rows = table.records() } else {
-                        let list = try JSONDecoder().decode([String].self,from:Data(source.utf8)); rows = list.map { ["value":$0] }
+                    // The source is a table name (written plainly or as {{name}}) or a JSON list.
+                    var name = (step.args["source"] ?? "").trimmingCharacters(in:.whitespaces); let rows: [[String:String]]
+                    if name.hasPrefix("{{"), name.hasSuffix("}}") { name = String(name.dropFirst(2).dropLast(2)).trimmingCharacters(in:.whitespaces) }
+                    if let table = record.tables[name] ?? record.tables[args["source"] ?? ""] ?? (record.tables.count == 1 && !name.hasPrefix("[") ? record.tables.values.first : nil) { rows = table.records() } else {
+                        guard let list = try? JSONDecoder().decode([String].self,from:Data((args["source"] ?? "").utf8)) else { throw ScoutError.message("The loop needs a table read earlier (‘\(name)’ was not found) or a list of values.") }
+                        rows = list.map { ["value":$0] }
                     }
                     guard rows.count <= 1000 else { throw ScoutError.message("A run can process at most 1,000 items.") }
                     if rows.isEmpty { record.pc = end+1 } else { let frame = LoopFrame(start:record.pc,end:end,item:args["item"]!,rows:rows,index:0); record.loops.append(frame); bind(frame,&record); record.pc += 1 }
@@ -150,6 +157,7 @@ public extension UIExecuting {
         guard allowExisting || !exists else { throw ScoutError.message("A file already exists at \(url.lastPathComponent). Choose another name.") }
         let before = exists ? try read(url) : nil
         record.undo.append(UndoEntry(path:url.path,before:before,after:data)); try save(&record)
+        try FileManager.default.createDirectory(at:url.deletingLastPathComponent(),withIntermediateDirectories:true)
         try data.write(to:url,options:.atomic)
         guard try read(url) == data else { throw ScoutError.message("The saved file did not match the intended result.") }
     }
@@ -174,7 +182,10 @@ public extension UIExecuting {
             try write(data,to:destination,record:&record,allowExisting:false)
             if step.operation != .copyFile { record.undo.append(UndoEntry(path:source.path,before:data,after:nil)); try save(&record); try FileManager.default.removeItem(at:source); guard !FileManager.default.fileExists(atPath:source.path) else { throw ScoutError.message("The original file could not be moved.") } }
         case .waitForFile:
-            let url = try file(args["path"]!); var last: Data?
+            var url = try file(args["path"]!); var last: Data?
+            // Waiting on a folder means "wait for the file that started this run"; if there is none, there is nothing to wait for.
+            var isDirectory: ObjCBool = false
+            if FileManager.default.fileExists(atPath:url.path,isDirectory:&isDirectory), isDirectory.boolValue { guard let started = record.values["file"] else { return }; url = try file(started) }
             for _ in 0..<30 { guard !stopRequested else { throw CancellationError() }; if let data = try? read(url), data == last { return }; last = try? read(url); try await Task.sleep(for:.seconds(1)) }
             throw ScoutError.message("The file did not finish arriving within 30 seconds.")
         case .resizeImage,.convertImage:

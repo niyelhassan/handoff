@@ -19,9 +19,11 @@ import ScoutCore
     @Published var access = AXIsProcessTrusted()
     @Published var page = "home"
     @Published var policy = PrivacyPolicy()
-    @Published var modelName = UserDefaults.standard.string(forKey:"model") ?? "grok-4-1-fast-reasoning"
+    @Published var modelName = UserDefaults.standard.string(forKey:"model") ?? AIClient.defaultModel
     @Published var sharing = UserDefaults.standard.bool(forKey:"sharing")
-    @Published var offline = false
+    /// Use saved offline plans instead of Grok. Defaults to on only when no API key is available.
+    @Published var offline = !KeyStore.available
+    @Published var aiLog: [String] = []
     @Published var disclosure = ""
     @Published var askMessage: String?
     private var askContinuation: CheckedContinuation<Bool,Never>?
@@ -38,7 +40,12 @@ import ScoutCore
     private var lastSuggestion = Date.distantPast
     private var judging = Set<String>()
     var dataDirectory: URL
+    var selfTest: Bool { CommandLine.arguments.contains("--self-test") }
     override init() {
+        if CommandLine.arguments.contains("--store-key") {
+            // Setup without the UI: `RoutineScout --store-key < keyfile` stores the Grok key privately and exits.
+            do { try KeyStore.save(String(decoding:FileHandle.standardInput.readDataToEndOfFile(),as:UTF8.self)); print("API key saved."); exit(0) } catch { print(error.localizedDescription); exit(1) }
+        }
         dataDirectory = FileManager.default.urls(for:.applicationSupportDirectory,in:.userDomainMask)[0].appendingPathComponent("RoutineScout")
         if let index = CommandLine.arguments.firstIndex(of:"--self-test"), CommandLine.arguments.count > index+1 { dataDirectory = URL(fileURLWithPath:CommandLine.arguments[index+1]) }
         do { memory = try Memory(path:dataDirectory.appendingPathComponent("memory.sqlite").path) } catch { fatalError("Routine Scout could not open its local database: \(error.localizedDescription)") }
@@ -59,7 +66,9 @@ import ScoutCore
         UNUserNotificationCenter.current().delegate = self
         let category = UNNotificationCategory(identifier:"routine",actions:[UNNotificationAction(identifier:"run",title:"Do it",options:.foreground),UNNotificationAction(identifier:"skip",title:"Skip")],intentIdentifiers:[])
         let finished = UNNotificationCategory(identifier:"finished",actions:[UNNotificationAction(identifier:"undo",title:"Undo",options:.foreground)],intentIdentifiers:[])
-        UNUserNotificationCenter.current().setNotificationCategories([category,finished])
+        let suggest = UNNotificationCategory(identifier:"suggest",actions:[UNNotificationAction(identifier:"automate",title:"Automate",options:.foreground),UNNotificationAction(identifier:"later",title:"Not now")],intentIdentifiers:[])
+        UNUserNotificationCenter.current().setNotificationCategories([category,finished,suggest])
+        ai.onResponse = { [weak self] task,text in Task { @MainActor in guard let self else { return }; self.aiLog.append("[\(Date().formatted(date:.omitted,time:.standard))] \(task.prefix(60))…\n\(text.prefix(4000))"); if self.aiLog.count > 20 { self.aiLog.removeFirst() } } }
         reload(); observer.start()
         timer = Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
         if !UserDefaults.standard.bool(forKey:"welcomed") { page = "welcome" }
@@ -108,10 +117,20 @@ import ScoutCore
                 defer { busy = false }
                 do {
                     ai.model = modelName
+                    status = "Asking Grok about a repeated procedure…"
                     let judged: Judgment = offline ? Fixtures.judgment(found.shape) : try await ai.judge(found)
+                    status = "Watching for routines"
                     guard !policy.paused else { return }
-                    if judged.isRoutine && judged.automatable { candidate = found; judgment = judged; disclosure = try ai.disclosure(found); lastSuggestion = Date(); try memory.save(lastSuggestion,kind:"lastSuggestion",id:"last"); show("home") }
-                } catch { self.error = error.localizedDescription; judging.remove(found.id) }
+                    if judged.isRoutine && judged.automatable {
+                        candidate = found; judgment = judged; disclosure = try ai.disclosure(found); lastSuggestion = Date(); try memory.save(lastSuggestion,kind:"lastSuggestion",id:"last")
+                        // A small notification is the first contact; the window opens if the person wants to look.
+                        notify(title:"You’ve done this \(found.count) times: \(judged.name)",body:judged.description+" Want Routine Scout to take it over?",category:"suggest",id:found.id)
+                        if selfTest || window?.isVisible == true || CommandLine.arguments.contains("--demo") { show("home") }
+                    } else {
+                        // Not a routine (or not automatable): remember that for a week so the same activity is not judged again.
+                        try memory.save(Suppression(id:found.id,until:Date().addingTimeInterval(7*86400)),kind:"suppression",id:found.id)
+                    }
+                } catch { self.error = error.localizedDescription; status = "Watching for routines"; judging.remove(found.id) }
             }
         } catch { self.error = error.localizedDescription }
     }
@@ -123,12 +142,17 @@ import ScoutCore
         guard let candidate else { return }; busy = true
         Task { defer { busy = false }; do {
             ai.model = modelName
-            if offline {
+            status = offline ? "Preparing the routine…" : "Grok is building the routine…"
+            var built: Automation
+            if offline { built = Fixtures.plan(candidate.shape,root:try prepareDemo().path) } else { built = try await ai.build(candidate) }
+            // Demo evidence points at the demo folder and the local practice pages; make sure both exist so "Try it now" works.
+            if replayedShape != nil {
                 let root = try prepareDemo().path
-                review = candidate.shape == "loop" ? Fixtures.form(root:root) : candidate.shape == "transform" ? Fixtures.cleanup(root:root) : Fixtures.collector(root:root)
-                if candidate.shape != "transform" { try practiceServer.start(); openPractice(candidate.shape == "loop" ? "form" : "listing/0") }
-            } else { review = try await ai.build(candidate) }
-            page = "review"
+                if built.inputs.isEmpty, let reference = Fixtures.plan(candidate.shape,root:root).inputs.first { built.inputs = [reference] }
+                if ["loop","collect"].contains(candidate.shape) { try practiceServer.start(); openPractice(candidate.shape == "loop" ? "form" : "listing/0") }
+            }
+            review = built; status = "Watching for routines"
+            show("review")
         } catch { self.error = error.localizedDescription } }
     }
     func save(_ a: Automation) {
@@ -137,6 +161,8 @@ import ScoutCore
     func run(_ a: Automation, values: [String:String] = [:], resume: RunRecord? = nil) {
         guard !policy.paused else { error = "Resume watching before running a routine."; return }
         guard runner.active == nil else { error = "Another routine is already running."; return }
+        // Demo routines start from sample files; recreate them so "Try it again" always has something to work on.
+        if resume == nil, values.isEmpty, a.inputs.contains(where: { $0.value.hasPrefix(demoRoot.path) }) || a.steps.contains(where: { $0.parameters.contains { $0.value.hasPrefix(demoRoot.path) } }) { try? prepareDemo() }
         show("activity"); currentRun = RunRecord(a); busy = true
         Task {
             defer { observer.runningAutomation = false; busy = false; reload() }
@@ -173,32 +199,46 @@ import ScoutCore
         guard runner.active == nil else { error = "Stop the running routine first."; return }
         do { try memory.erase(); KeyStore.delete(); candidate = nil; review = nil; currentRun = nil; judgment = nil; pendingRuns = []; disclosure = ""; judging = []; sharing = false; policy = PrivacyPolicy(); policy.pausedUntil = .distantFuture; savePolicy(); reload() } catch { self.error = error.localizedDescription }
     }
-    func prepareDemo() throws -> URL {
-        let root = dataDirectory.appendingPathComponent("Demo"); try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
-        try "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n".write(to:root.appendingPathComponent("sales.csv"),atomically:true,encoding:.utf8)
+    /// The demo folder. It lives inside Downloads so file triggers can be shown live, but in its own folder so it never mixes with real files.
+    var demoRoot: URL { selfTest ? dataDirectory.appendingPathComponent("Demo") : FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Downloads/Routine Scout Demo") }
+    /// Creates the sample files that the five demo routines start from.
+    @discardableResult func prepareDemo() throws -> URL {
+        let root = demoRoot; try FileManager.default.createDirectory(at:root,withIntermediateDirectories:true)
+        // Reset the outputs of earlier tries so the routines can run again from a clean start.
+        for leftover in ["Invoices","Web","sales-0-clean.csv"] { try? FileManager.default.removeItem(at:root.appendingPathComponent(leftover)) }
+        for stale in (try? FileManager.default.contentsOfDirectory(atPath:root.path)) ?? [] where stale.hasSuffix("-resized.png") { try? FileManager.default.removeItem(at:root.appendingPathComponent(stale)) }
+        try "Name,Amount,Unused\n Bea ,$20,x\n Ada ,$10,y\n".write(to:root.appendingPathComponent("sales-0.csv"),atomically:true,encoding:.utf8)
         try "Name,Email\nAda,ada@example.test\nBea,bea@example.test\nCy,cy@example.test\n".write(to:root.appendingPathComponent("people.csv"),atomically:true,encoding:.utf8)
+        if !FileManager.default.fileExists(atPath:root.appendingPathComponent("Apartment Search.csv").path) { try "Name,Price,Link\n".write(to:root.appendingPathComponent("Apartment Search.csv"),atomically:true,encoding:.utf8) }
+        try DemoFiles.pdf(title:"Invoice 8731").write(to:root.appendingPathComponent("invoice-8731.pdf"))
+        try DemoFiles.png(width:1440,height:900).write(to:root.appendingPathComponent("Screenshot \(Runner.dateString(Date())) at 10.00.png"))
         return root
     }
+    /// The shape of the demo routine most recently replayed, so the built plan can be pointed at the demo files and pages.
+    private(set) var replayedShape: String?
     /// Opens a practice page in Safari (the only browser the practice routines are written for).
     func openPractice(_ path: String) {
         let url = URL(string:PracticeServer.base+"/"+path)!
         if let safari = NSWorkspace.shared.urlForApplication(withBundleIdentifier:"com.apple.Safari") { NSWorkspace.shared.open([url],withApplicationAt:safari,configuration:NSWorkspace.OpenConfiguration()) } else { NSWorkspace.shared.open(url) }
     }
-    /// Skips detection and goes straight to a ready-made practice routine.
-    func practice(_ kind: String) {
+    /// Skips detection and goes straight to a ready-made routine for one of the five demo cases.
+    func practice(_ shape: String) {
         do {
-            let root = try prepareDemo(); try practiceServer.start()
-            review = kind == "form" ? Fixtures.form(root:root.path) : Fixtures.collector(root:root.path)
-            page = "review"; offline = true; show("review")
-            openPractice(kind == "form" ? "form" : "listing/0")
+            let root = try prepareDemo()
+            if ["loop","collect"].contains(shape) { try practiceServer.start(); openPractice(shape == "loop" ? "form" : "listing/0") }
+            replayedShape = shape; review = Fixtures.plan(shape,root:root.path); show("review")
         } catch { self.error = error.localizedDescription }
     }
-    /// Replays three recorded repetitions of a routine so detection, the suggestion card, and the offline plan can be shown without waiting.
+    /// Replays three recorded repetitions of a routine exactly as the observer would have stored them, then runs the normal
+    /// detection path: pattern finder → Grok judge → suggestion notification and card → Automate → Grok build → review → Try it.
     func demo(_ shape: String = "transform") {
         do {
-            offline = true; let root = try prepareDemo()
+            let root = try prepareDemo()
+            // Forget earlier replays of this case so the suggestion can appear again.
+            let previous = PatternFinder().candidates(Fixtures.evidence(shape,root:root.path)).map(\.id)
+            for id in previous { try memory.delete(kind:"suppression",id:id); judging.remove(id) }
             for e in Fixtures.evidence(shape,root:root.path) { try memory.add(e) }
-            judging = []; candidate = nil; judgment = nil; lastSuggestion = .distantPast; reload(); detect()
+            replayedShape = shape; candidate = nil; judgment = nil; lastSuggestion = .distantPast; reload(); detect()
             if candidate == nil && !busy { error = "No routine was found in the replayed activity. Try again after a moment." }
         } catch { self.error = error.localizedDescription }
     }
@@ -207,6 +247,9 @@ import ScoutCore
         await MainActor.run {
             let id = response.notification.request.content.userInfo["id"] as? String ?? ""
             if response.actionIdentifier == "undo", let run = self.activity.first(where:{$0.id == id}) { self.undo(run) }
+            else if response.notification.request.content.categoryIdentifier == "suggest" {
+                if response.actionIdentifier == "later" { self.suppress(forever:false) } else if response.actionIdentifier == "automate" { self.show("home"); self.build() } else { self.show("home") }
+            }
             else if let index = self.pendingRuns.firstIndex(where:{$0.0.id == id}) { if response.actionIdentifier == "run" { let pending = self.pendingRuns.remove(at:index); self.run(pending.0,values:pending.1) } else if response.actionIdentifier == "skip" { self.pendingRuns.remove(at:index) } else { self.show() } }
         }
     }
