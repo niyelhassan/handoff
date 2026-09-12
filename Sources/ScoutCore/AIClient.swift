@@ -74,11 +74,15 @@ public final class AIClient {
         throw ScoutError.message("Could not build this routine.")
     }
     /// The first observed file that entered the routine (has a path detail), if any.
+    /// Finds the file behind a document name (for example a CSV opened in Numbers, which reports no path).
+    /// The app installs this; it searches the user's usual folders.
+    public static var locateDocument: ((String) -> String?)?
     static func inputFile(_ candidate: Candidate) -> String? {
         let first = candidate.instances.first ?? []
         return first.first(where: { $0.event.kind == "file" && $0.details["path"] != nil })?.details["path"]
             ?? first.first(where: { $0.event.kind == "copy" && $0.details["path"]?.hasPrefix("/") == true })?.details["path"]
             ?? first.first(where: { $0.details["path"]?.hasPrefix("/") == true })?.details["path"]
+            ?? first.compactMap { $0.details["document"] }.compactMap { locateDocument?($0) }.first
     }
     /// Operations a routine of the given shape may use. Narrowing the schema keeps the model on deterministic file and
     /// table steps for file-based routines instead of driving other apps by clicks.

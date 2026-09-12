@@ -81,7 +81,20 @@ import ScoutCore
     /// early phase produced a window that was drawn but never received clicks or keystrokes.
     func launch() {
         observer.start()
-        timer = Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
+        // A CSV opened in Numbers is an untitled document: find the file by name in the usual folders.
+        let demoRoot = self.demoRoot
+        AIClient.locateDocument = { name in
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            let stem = (name as NSString).deletingPathExtension
+            for folder in [demoRoot, home.appendingPathComponent("Downloads"), home.appendingPathComponent("Desktop"), home.appendingPathComponent("Documents")] {
+                for candidate in [name, stem+".csv", stem+".numbers", stem+".xlsx"] {
+                    let path = folder.appendingPathComponent(candidate).path
+                    if FileManager.default.fileExists(atPath:path) { return path }
+                }
+            }
+            return nil
+        }
+        timer = Timer.scheduledTimer(withTimeInterval:10,repeats:true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
         // `--demo <case>` replays one of the five examples right after launch (used for rehearsing the presentation).
         if let index = CommandLine.arguments.firstIndex(of:"--demo"), CommandLine.arguments.count > index+1, Fixtures.shapes.contains(CommandLine.arguments[index+1]) {
             let shape = CommandLine.arguments[index+1]; DispatchQueue.main.asyncAfter(deadline:.now()+1.5) { [weak self] in self?.show("home"); self?.demo(shape) }
@@ -160,7 +173,8 @@ import ScoutCore
                         candidate = found; judgment = judged; disclosure = try ai.disclosure(found); lastSuggestion = Date(); try memory.save(lastSuggestion,kind:"lastSuggestion",id:"last")
                         // A small notification is the first contact; the window opens if the person wants to look.
                         notify(title:"You’ve done this \(found.count) times: \(judged.name)",body:judged.description+" Want Routine Scout to take it over?",category:"suggest",id:found.id)
-                        if selfTest || window?.isVisible == true || CommandLine.arguments.contains("--demo") { show("home") }
+                        // The suggestion also opens the window so the offer is impossible to miss.
+                        show("home")
                     } else {
                         // Not a routine (or not automatable): remember that for a week so the same activity is not judged again.
                         try memory.save(Suppression(id:found.id,until:Date().addingTimeInterval(7*86400)),kind:"suppression",id:found.id)
