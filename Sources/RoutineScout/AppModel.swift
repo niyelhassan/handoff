@@ -71,23 +71,43 @@ import ScoutCore
         let finished = UNNotificationCategory(identifier:"finished",actions:[UNNotificationAction(identifier:"undo",title:"Undo",options:.foreground)],intentIdentifiers:[])
         let suggest = UNNotificationCategory(identifier:"suggest",actions:[UNNotificationAction(identifier:"automate",title:"Automate",options:.foreground),UNNotificationAction(identifier:"later",title:"Not now")],intentIdentifiers:[])
         UNUserNotificationCenter.current().setNotificationCategories([category,finished,suggest])
+        ai.onResponse = { [weak self] task,text in Task { @MainActor in guard let self else { return }; self.aiLog.append("[\(Date().formatted(date:.omitted,time:.standard))] \(task.prefix(60))…\n\(text.prefix(4000))"); if self.aiLog.count > 20 { self.aiLog.removeFirst() } } }
+        reload()
+        if !UserDefaults.standard.bool(forKey:"welcomed") { page = "welcome" }
+    }
+    /// Everything that touches the window server or event system runs here, from
+    /// `applicationDidFinishLaunching`. This object is created inside the SwiftUI `App` initializer,
+    /// before AppKit has finished launching; installing event monitors or ordering windows in that
+    /// early phase produced a window that was drawn but never received clicks or keystrokes.
+    func launch() {
+        observer.start()
+        timer = Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
         // `--demo <case>` replays one of the five examples right after launch (used for rehearsing the presentation).
         if let index = CommandLine.arguments.firstIndex(of:"--demo"), CommandLine.arguments.count > index+1, Fixtures.shapes.contains(CommandLine.arguments[index+1]) {
             let shape = CommandLine.arguments[index+1]; DispatchQueue.main.asyncAfter(deadline:.now()+1.5) { [weak self] in self?.show("home"); self?.demo(shape) }
         }
-        ai.onResponse = { [weak self] task,text in Task { @MainActor in guard let self else { return }; self.aiLog.append("[\(Date().formatted(date:.omitted,time:.standard))] \(task.prefix(60))…\n\(text.prefix(4000))"); if self.aiLog.count > 20 { self.aiLog.removeFirst() } } }
-        reload(); observer.start()
-        timer = Timer.scheduledTimer(withTimeInterval:30,repeats:true) { [weak self] _ in MainActor.assumeIsolated { self?.tick() } }
-        if !UserDefaults.standard.bool(forKey:"welcomed") { page = "welcome" }
-        if !CommandLine.arguments.contains("--background") { DispatchQueue.main.async { self.show() } }
+        if !CommandLine.arguments.contains("--background") { show() }
         if CommandLine.arguments.contains("--self-test") { sharing = false; policy.pausedUntil = nil; observer.policy = policy; Task { await self.integrationTests() } }
     }
     func show(_ selected: String? = nil) {
         if let selected { page = selected }
+        // Agent apps (LSUIElement) never become the frontmost app, so WindowServer lets you drag the
+        // title bar but clicks fall through to whatever is behind. Become a normal app first.
+        NSApp.setActivationPolicy(.regular)
         if window == nil {
-            let w = NSWindow(contentRect:NSRect(x:0,y:0,width:620,height:680),styleMask:[.titled,.closable,.resizable],backing:.buffered,defer:false); w.title = "Routine Scout"; w.contentView = NSHostingView(rootView:ScoutView(model:self)); w.center(); w.isReleasedWhenClosed = false; window = w
+            if let existing = NSApp.windows.first(where: { $0.title == "Routine Scout" && $0.contentView != nil }) {
+                window = existing
+            } else {
+                let w = ScoutWindow(contentRect:NSRect(x:0,y:0,width:620,height:680),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
+                w.title = "Routine Scout"; w.isReleasedWhenClosed = false; w.ignoresMouseEvents = false
+                w.contentView = InteractiveHostingView(rootView:ScoutView(model:self)); w.center(); window = w
+            }
         }
-        NSApp.activate(ignoringOtherApps:true); window?.makeKeyAndOrderFront(nil)
+        window?.ignoresMouseEvents = false
+        window?.makeKeyAndOrderFront(nil)
+        window?.makeMain()
+        NSApp.activate()
+        NSRunningApplication.current.activate(options:[.activateAllWindows,.activateIgnoringOtherApps])
     }
     func allow() {
         sharing = true; UserDefaults.standard.set(true,forKey:"sharing"); UserDefaults.standard.set(true,forKey:"welcomed")
