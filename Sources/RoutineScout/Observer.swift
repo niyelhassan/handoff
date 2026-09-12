@@ -12,6 +12,8 @@ import ScoutCore
     var runningAutomation = false
     var lastInteraction = Date.distantPast
     var lastCopy = Date.distantPast
+    /// Where the user was when ⌘C was pressed; the clipboard change is noticed a little later, possibly after an app switch.
+    private var copyContext: Context?; private var copyProbe: [String:String] = [:]
     private var timer: Timer?
     private var eventMonitor: Any?
     private var tokens: [NSObjectProtocol] = []
@@ -55,12 +57,14 @@ import ScoutCore
         guard policy.permits(app:bundle,domain:url.host ?? "",role:focused.map { axString($0,kAXRoleAttribute) } ?? "",window:window,protected:focused.map(axProtected) ?? false) else { return nil }
         return Context(app:bundle,root:root,window:window,url:url,focused:focused)
     }
-    private func emit(_ kind: String, element: AXUIElement? = nil, extras: [String:String] = [:]) {
-        guard let context = context(), element.map({ !axProtected($0) }) ?? true else { return }
+    private func emit(_ kind: String, element: AXUIElement? = nil, extras: [String:String] = [:], from captured: Context? = nil) {
+        guard let context = captured ?? context(), element.map({ !axProtected($0) }) ?? true else { return }
         let target = element ?? context.focused
         let role = target.map { axString($0,kAXRoleAttribute) } ?? ""
         let rawLabel = target.map { let title = axString($0,kAXTitleAttribute); return title.isEmpty ? axString($0,kAXDescriptionAttribute) : title } ?? ""
-        let semanticLabel = ["AXButton","AXMenuItem","AXTextField","AXTextArea","AXCheckBox","AXPopUpButton"].contains(role) ? rawLabel : role
+        var semanticLabel = ["AXButton","AXMenuItem","AXTextField","AXTextArea","AXCheckBox","AXPopUpButton"].contains(role) ? rawLabel : role
+        // Spreadsheet cells are labelled by address (A3, B12); the address varies per row, the meaning does not.
+        if semanticLabel.range(of:"^[A-Z]{1,3}[0-9]{1,7}$",options:.regularExpression) != nil { semanticLabel = "cell" }
         var details = extras; details["window"] = context.window; details["url"] = context.url.scheme == "about" ? "" : context.url.absoluteString; details["label"] = rawLabel
         if let target { details["identifier"] = axString(target,kAXIdentifierAttribute); if ["click","paste","copy"].contains(kind) { let value = axString(target,kAXValueAttribute); if value.count <= 4096 { details["value"] = value } } }
         // Tokens contain no window titles, URLs, filenames or field values.
@@ -76,15 +80,15 @@ import ScoutCore
             guard event.modifierFlags.contains(.command) else { return } // Never read plain typing.
             let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
             guard ["c","v","s","e","o","n","a","z"].contains(key) else { return }
-            if key == "c" { lastCopy = Date() }
+            if key == "c" { lastCopy = Date(); copyContext = context(); copyProbe = probe() }
             if key == "v" { emit("paste",extras:probe()) }
-            else if key != "c" { emit(key == "e" ? "export" : "shortcut",extras:["shortcut":"command"+(event.modifierFlags.contains(.shift) ? "+shift" : "")+"+"+key]) }
+            else if key != "c" { emit(key == "e" ? "export" : "shortcut",extras:(key == "n" ? probe() : [:]).merging(["shortcut":"command"+(event.modifierFlags.contains(.shift) ? "+shift" : "")+"+"+key],uniquingKeysWith: { _,b in b })) }
         } else {
             var element: AXUIElement?; let position = CGEvent(source:nil)?.location ?? .zero
             AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(),Float(position.x),Float(position.y),&element)
             if let element {
                 let label = axString(element,kAXTitleAttribute).lowercased()
-                if label == "copy" { lastCopy = Date() }
+                if label == "copy" { lastCopy = Date(); copyContext = context(); copyProbe = probe() }
                 emit(label == "paste" ? "paste" : ["submit","save","update","add record"].contains(label) ? "submit" : label.contains("export") ? "export" : "click",element:element)
             }
         }
@@ -93,7 +97,7 @@ import ScoutCore
         let count = NSPasteboard.general.changeCount
         if count != changeCount {
             changeCount = count
-            if !runningAutomation, Date().timeIntervalSince(lastCopy) < 3, context() != nil, let text = NSPasteboard.general.string(forType:.string), text.utf8.count <= 16384 { emit("copy",extras:probe().merging(["text":text],uniquingKeysWith: { _,b in b })) }
+            if !runningAutomation, Date().timeIntervalSince(lastCopy) < 3, let source = copyContext, let text = NSPasteboard.general.string(forType:.string), text.utf8.count <= 16384 { emit("copy",extras:copyProbe.merging(["text":text],uniquingKeysWith: { _,b in b }),from:source); copyContext = nil }
         }
         guard let c = context() else { lastContext = ""; return }
         let signature = c.app+"|"+c.url.absoluteString
@@ -116,7 +120,16 @@ import ScoutCore
     private func probe() -> [String:String] {
         // Only fixed, read-only templates. Failed app permission does not prevent observation.
         guard let c = context(), ["com.apple.iWork.Numbers","com.microsoft.Excel","com.apple.mail","com.apple.finder"].contains(c.app) else { return [:] }
-        return ScriptTemplates.context(app:c.app)
+        var result = ScriptTemplates.context(app:c.app)
+        // Without Automation permission Finder cannot be asked; a window title that names a folder in the usual places is the next best thing.
+        if c.app == "com.apple.finder", result["folder"] == nil, !c.window.isEmpty {
+            let home = FileManager.default.homeDirectoryForCurrentUser
+            for base in ["Desktop","Documents","Downloads",""] {
+                let url = (base.isEmpty ? home : home.appendingPathComponent(base)).appendingPathComponent(c.window); var isDirectory: ObjCBool = false
+                if FileManager.default.fileExists(atPath:url.path,isDirectory:&isDirectory), isDirectory.boolValue { result["folder"] = url.path+"/"; break }
+            }
+        }
+        return result
     }
     private func watchFiles() {
         let folders = ["Downloads","Desktop","Documents"].map { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent($0).path }
