@@ -131,7 +131,7 @@ struct ScoutView: View {
     var memory: some View {
         VStack(alignment:.leading,spacing:12) {
             Text("What I remember").font(.title2.bold()); Text("Activity expires after 14 days. Copied text, page addresses, filenames and field values expire after 48 hours. Undo copies expire after one minute.").foregroundStyle(.secondary)
-            Text("\(model.events.count) recent events").font(.headline)
+            Text("\(model.events.count) recent events").font(.headline).id(model.memoryVersion)
             ForEach(model.events.reversed().prefix(200),id:\.event.id) { evidence in DisclosureGroup { ForEach(evidence.details.keys.sorted(),id:\.self) { key in Text(key+": "+(evidence.details[key] ?? "")).font(.caption).textSelection(.enabled) } } label: { VStack(alignment:.leading) { Text(evidence.event.kind.capitalized+" · "+(evidence.event.label.isEmpty ? evidence.event.role : evidence.event.label)); Text(evidence.event.app+" · "+evidence.event.time.formatted()).font(.caption).foregroundStyle(.secondary) } } }
         }
     }

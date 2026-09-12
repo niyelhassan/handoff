@@ -12,8 +12,8 @@ public struct PatternFinder {
         if !current.isEmpty { episodes.append(current) }
         struct Window { var episode: Int; var start: Int; var length: Int }
         var buckets: [String:[Window]] = [:]
-        for (ei,episode) in episodes.enumerated() where episode.count >= 4 {
-            for length in 4...min(30,episode.count) {
+        for (ei,episode) in episodes.enumerated() where episode.count >= 3 {
+            for length in 3...min(30,episode.count) {
                 for start in 0...(episode.count-length) {
                     let items = Array(episode[start..<(start+length)])
                     // Require a meaningful action and a destination, not mere browsing or app switching.

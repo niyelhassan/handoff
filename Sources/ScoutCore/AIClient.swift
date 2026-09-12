@@ -30,6 +30,7 @@ public final class AIClient {
     public var model: String
     public var keyProvider: () -> String?
     public static let defaultModel = "grok-4.3"
+    public static let knownModels = ["grok-4.3","grok-4.5","grok-4.6","grok-4.20-0309-reasoning","grok-4.20-0309-non-reasoning"]
     public init(model: String = AIClient.defaultModel, keyProvider: @escaping () -> String? = { KeyStore.resolve() }) { self.model = model; self.keyProvider = keyProvider }
     public func request<T: Decodable>(_ type: T.Type, task: String, payload: String, schema: [String:Any]) async throws -> T {
         guard let key = keyProvider(), !key.isEmpty else { throw ScoutError.message("Add your Grok API key in Preferences to build routines.") }

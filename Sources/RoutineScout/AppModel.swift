@@ -7,7 +7,10 @@ import ScoutCore
 @MainActor final class AppModel: NSObject, ObservableObject, UNUserNotificationCenterDelegate {
     @Published var automations: [Automation] = []
     @Published var activity: [RunRecord] = []
-    @Published var events: [Evidence] = []
+    /// Recent evidence for the memory page. Deliberately not @Published: it changes on every click anywhere on the Mac,
+    /// and republishing it rebuilt the menu bar menu and the window while they were being used. The memory page refreshes itself.
+    var events: [Evidence] = []
+    @Published var memoryVersion = 0
     @Published var candidate: Candidate?
     @Published var judgment: Judgment?
     @Published var review: Automation?
@@ -19,7 +22,7 @@ import ScoutCore
     @Published var access = AXIsProcessTrusted()
     @Published var page = "home"
     @Published var policy = PrivacyPolicy()
-    @Published var modelName = UserDefaults.standard.string(forKey:"model") ?? AIClient.defaultModel
+    @Published var modelName = AIClient.knownModels.contains(UserDefaults.standard.string(forKey:"model") ?? "") ? UserDefaults.standard.string(forKey:"model")! : AIClient.defaultModel
     @Published var sharing = UserDefaults.standard.bool(forKey:"sharing")
     /// Use saved offline plans instead of Grok. Defaults to on only when no API key is available.
     @Published var offline = !KeyStore.available
@@ -93,21 +96,27 @@ import ScoutCore
         page = "home"
     }
     func reload() {
-        do { try memory.prune(); try runner.pruneRuns(); automations = try memory.all(Automation.self,kind:"automations").sorted { $0.name < $1.name }; activity = try memory.all(RunRecord.self,kind:"runs").sorted { $0.started > $1.started }; events = try memory.events(limit:500) } catch { self.error = error.localizedDescription }
+        // Only publish when something actually changed; every publish rebuilds the menu bar menu and the window.
+        do {
+            try memory.prune(); try runner.pruneRuns()
+            let a = try memory.all(Automation.self,kind:"automations").sorted { $0.name < $1.name }; if (try? JSONEncoder().encode(a)) != (try? JSONEncoder().encode(automations)) { automations = a }
+            let r = try memory.all(RunRecord.self,kind:"runs").sorted { $0.started > $1.started }; if (try? JSONEncoder().encode(r)) != (try? JSONEncoder().encode(activity)) { activity = r }
+            events = try memory.events(limit:500)
+        } catch { self.error = error.localizedDescription }
     }
     func receive(_ e: Evidence) {
         guard !policy.paused else { return }
-        do { try memory.add(e); if events.count > 500 { events.removeFirst() }; events.append(e)
+        do { try memory.add(e); if events.count > 500 { events.removeFirst() }; events.append(e); if page == "memory", window?.isVisible == true, e.event.kind != "focus" { memoryVersion += 1 }
             if e.event.kind == "file", let path = e.details["path"] { for a in try triggers.fileAppeared(path:path,automations:automations) { enqueue(a,values:["file":path]) } }
         } catch { self.error = error.localizedDescription }
     }
     func tick() {
-        access = AXIsProcessTrusted(); observer.policy = policy
-        status = policy.paused ? "Paused" : !access ? "Waiting for access" : runner.active != nil ? "Running a routine" : "Watching for routines"
+        let trusted = AXIsProcessTrusted(); if trusted != access { access = trusted }; observer.policy = policy
+        let current = policy.paused ? "Paused" : !access ? "Waiting for access" : runner.active != nil ? "Running a routine" : busy ? status : "Watching for routines"; if current != status { status = current }
         guard !policy.paused else { return }
         reload()
         do { for a in try triggers.scheduled(automations:automations) { enqueue(a) } } catch { self.error = error.localizedDescription }
-        guard access, sharing, !busy, candidate == nil, runner.active == nil, Date().timeIntervalSince(observer.lastInteraction) > 5, Date().timeIntervalSince(lastSuggestion) >= 3600 else { return }
+        guard access, sharing, !busy, candidate == nil, runner.active == nil, Date().timeIntervalSince(observer.lastInteraction) > 5, Date().timeIntervalSince(lastSuggestion) >= 120 else { return }
         // Full-screen windows are treated as presentations; suggestions remain silent.
         if NSApp.currentSystemPresentationOptions.contains(.fullScreen) { return }
         detect()
