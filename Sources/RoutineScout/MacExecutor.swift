@@ -33,6 +33,17 @@ import ScoutCore
         guard NSWorkspace.shared.frontmostApplication?.bundleIdentifier == app else { throw ScoutError.message("The expected app is not in front.") }
         guard !interrupted() else { throw ScoutError.message("Stopped because you started using the Mac.") }
     }
+    func focus(_ step: Step) async throws { if let target = step.target { try await foreground(target.app) } }
+    /// Resolves a target, retrying for a few seconds because pages and windows often finish appearing a moment after they are opened.
+    private func locate(_ target: Target, timeout: Double = 3) async throws -> AXUIElement {
+        let deadline = Date().addingTimeInterval(timeout)
+        while true {
+            do { return try ax.resolve(target) } catch {
+                guard Date() < deadline, !interrupted() else { throw error }
+                try await Task.sleep(for:.milliseconds(250))
+            }
+        }
+    }
     func execute(_ step: Step, args: [String:String]) async throws -> [String:String] {
         if let target = step.target { try await foreground(target.app) }
         switch step.operation {
@@ -45,20 +56,20 @@ import ScoutCore
         case .waitForElement:
             for _ in 0..<20 { guard !interrupted() else { throw CancellationError() }; if (try? ax.resolve(step.target!)) != nil { return [:] }; try await Task.sleep(for:.milliseconds(500)) }; throw ScoutError.message("The expected item did not appear.")
         case .readText,.copyText:
-            let e = try ax.resolve(step.target!); let value = axString(e,kAXValueAttribute); let text = value.isEmpty ? axString(e,kAXTitleAttribute) : value
+            let e = try await locate(step.target!); let value = axString(e,kAXValueAttribute); let text = value.isEmpty ? axString(e,kAXTitleAttribute) : value
             guard !text.isEmpty else { throw ScoutError.message("The item has no readable text.") }
             if step.operation == .copyText { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(text,forType:.string) }
             return [args["output"]!:text]
         case .readURL:
             guard let app = NSRunningApplication.runningApplications(withBundleIdentifier:step.target!.app).first else { throw ScoutError.message("Open the browser first.") }; let url = ax.pageURL(AXUIElementCreateApplication(app.processIdentifier)); guard ["https","http"].contains(url.scheme ?? "") else { throw ScoutError.message("The current page address could not be read.") }; return [args["output"]!:url.absoluteString]
         case .setValue,.pasteValue:
-            let element = try ax.resolve(step.target!); guard !axProtected(element) else { throw ScoutError.message("Protected fields cannot be filled.") }
+            let element = try await locate(step.target!); guard !axProtected(element) else { throw ScoutError.message("Protected fields cannot be filled.") }
             guard AXUIElementSetAttributeValue(element,kAXFocusedAttribute as CFString,kCFBooleanTrue) == .success else { throw ScoutError.message("The field could not receive focus.") }
             // Prefer a direct field write over changing the user's clipboard.
             guard AXUIElementSetAttributeValue(element,kAXValueAttribute as CFString,args["value"]! as CFString) == .success else { throw ScoutError.message("This field does not allow direct filling. No keystrokes were sent.") }
             try await Task.sleep(for:.milliseconds(150)); guard axString(element,kAXValueAttribute) == args["value"]! else { throw ScoutError.message("The field did not keep the expected value.") }; return [:]
         case .click,.chooseMenu:
-            let element = try ax.resolve(step.target!); let before = fingerprint(element)
+            let element = try await locate(step.target!); let before = fingerprint(element)
             guard AXUIElementPerformAction(element,kAXPressAction as CFString) == .success else { throw ScoutError.message("The item could not be pressed.") }
             for _ in 0..<10 { try await Task.sleep(for:.milliseconds(200)); if fingerprint(element) != before || (try? ax.resolve(step.target!)) == nil { return [:] } }
             throw ScoutError.message("The item was pressed, but its result could not be verified. Check the app before continuing.")
@@ -78,15 +89,19 @@ import ScoutCore
         default: throw ScoutError.message("This action is not available in this app.")
         }
     }
-    func prepareUndo(_ step: Step, args: [String:String]) throws -> FieldUndo? {
+    func prepareUndo(_ step: Step, args: [String:String]) async throws -> FieldUndo? {
         guard [.setValue,.pasteValue].contains(step.operation), let target = step.target else { return nil }
-        let element = try ax.resolve(target)
+        let element = try await locate(target)
         return FieldUndo(target:target,before:axString(element,kAXValueAttribute),after:args["value"] ?? "",context:contextIdentity(target.app))
     }
     func contextIdentity(_ app: String) -> String {
         guard let running = NSRunningApplication.runningApplications(withBundleIdentifier:app).first else { return "" }
         let root = AXUIElementCreateApplication(running.processIdentifier)
-        return digest(ax.pageURL(root).absoluteString+(axElement(root,kAXFocusedWindowAttribute).map { axString($0,kAXTitleAttribute) } ?? ""))
+        // A web page is identified by its address (titles arrive late while a page loads). Other apps use the main window title.
+        let url = ax.pageURL(root,browser:Accessibility.browsers.contains(app))
+        if ["https","http"].contains(url.scheme ?? "") { return url.absoluteString }
+        let window = axElement(root,kAXMainWindowAttribute) ?? axElement(root,kAXFocusedWindowAttribute)
+        return window.map { axString($0,kAXTitleAttribute) } ?? ""
     }
     func checkUndo(_ entry: FieldUndo) throws {
         guard contextIdentity(entry.target.app) == entry.context, axString(try ax.resolve(entry.target),kAXValueAttribute) == entry.after else { throw ScoutError.message("The page or field has changed. Undo will not overwrite your edits.") }
@@ -94,7 +109,12 @@ import ScoutCore
     func undo(_ entry: FieldUndo) throws {
         try checkUndo(entry)
         let element = try ax.resolve(entry.target)
-        guard AXUIElementSetAttributeValue(element,kAXValueAttribute as CFString,entry.before as CFString) == .success, axString(element,kAXValueAttribute) == entry.before else { throw ScoutError.message("The field could not be restored.") }
+        // Web views only accept value writes on the focused field, so focus it first exactly as the fill did.
+        _ = AXUIElementSetAttributeValue(element,kAXFocusedAttribute as CFString,kCFBooleanTrue)
+        guard AXUIElementSetAttributeValue(element,kAXValueAttribute as CFString,entry.before as CFString) == .success else { throw ScoutError.message("The field could not be restored.") }
+        // Web views apply the value asynchronously; give them up to a second before judging.
+        for _ in 0..<10 { if axString(element,kAXValueAttribute) == entry.before { return }; Thread.sleep(forTimeInterval:0.1) }
+        throw ScoutError.message("The field could not be restored.")
     }
     private func fingerprint(_ element: AXUIElement) -> String {
         let parent = axElement(element,kAXParentAttribute) ?? element

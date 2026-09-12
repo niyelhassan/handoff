@@ -45,13 +45,16 @@ public struct RunRecord: Codable, Identifiable {
 @MainActor public protocol UIExecuting: AnyObject {
     func execute(_ step: Step, args: [String:String]) async throws -> [String:String]
     func beforeRun() async throws
+    /// Bring the step's app forward before undo state is captured or the action runs.
+    func focus(_ step: Step) async throws
     func validate(_ step: Step) throws
-    func prepareUndo(_ step: Step, args: [String:String]) throws -> FieldUndo?
+    func prepareUndo(_ step: Step, args: [String:String]) async throws -> FieldUndo?
     func checkUndo(_ entry: FieldUndo) throws
     func undo(_ entry: FieldUndo) throws
 }
 public extension UIExecuting {
-    func prepareUndo(_ step: Step, args: [String:String]) throws -> FieldUndo? { nil }
+    func focus(_ step: Step) async throws {}
+    func prepareUndo(_ step: Step, args: [String:String]) async throws -> FieldUndo? { nil }
     func checkUndo(_ entry: FieldUndo) throws { throw ScoutError.message("Field Undo is unavailable.") }
     func undo(_ entry: FieldUndo) throws { throw ScoutError.message("Field Undo is unavailable.") }
 }
@@ -197,7 +200,8 @@ public extension UIExecuting {
         default:
             guard let ui else { throw ScoutError.message("This action needs the macOS app.") }
             if step.operation.irreversible { record.irreversible = true; record.fieldUndo = []; try save(&record) }
-            if let undo = try ui.prepareUndo(step,args:args) {
+            try await ui.focus(step)
+            if let undo = try await ui.prepareUndo(step,args:args) {
                 if let index = record.fieldUndo.firstIndex(where: { $0.target == undo.target && $0.context == undo.context }) { record.fieldUndo[index].after = undo.after } else { record.fieldUndo.append(undo) }; try save(&record)
             }
             let values = try await ui.execute(step,args:args); record.values.merge(values,uniquingKeysWith:{ _,b in b })

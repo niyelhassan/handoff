@@ -50,7 +50,7 @@ SCOUT_LIVE_TEST=1 swift run ScoutTests   # also exercises the real Grok API with
 scripts/native-test.sh          # native rehearsal: real Safari pages, Accessibility reads/writes, files, Undo (needs Accessibility)
 ```
 
-The native rehearsal writes `integration-report.txt` and the Safari accessibility snapshot of the practice page into `TestResults/`.
+The native rehearsal writes `integration-report.txt` and the Safari accessibility snapshot of the practice page into `TestResults/`. It launches the app through LaunchServices (`open`) so macOS applies the app's own Accessibility grant rather than the terminal's, and it stops the moment you touch the keyboard or mouse (the same safety stop real runs use), so leave the Mac idle for about a minute while it runs.
 
 ## Layout
 

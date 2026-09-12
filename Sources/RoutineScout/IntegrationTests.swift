@@ -30,7 +30,7 @@ extension AppModel {
                 let result = try await runner.run(Fixtures.form(root:root.path))
                 observer.runningAutomation = false
                 log("Form rehearsal \(rehearsal): \(result.status). \(result.message)")
-                guard result.status == "succeeded" else { throw ScoutError.message(result.message) }
+                guard result.status == "succeeded" else { try? ax.snapshot(app:"com.apple.Safari").write(to:dataDirectory.appendingPathComponent("failure-structure.txt"),atomically:true,encoding:.utf8); throw ScoutError.message(result.message) }
                 let (data,_) = try await URLSession.shared.data(from:URL(string:PracticeServer.base+"/status")!)
                 let submitted = try JSONDecoder().decode([[String:String]].self,from:data)
                 guard submitted.count == rehearsal*3, submitted.last?["Name"] == "Cy", submitted.last?["Email"] == "cy@example.test" else { throw ScoutError.message("The server did not receive exactly three correct new rows (has \(submitted.count)).") }
@@ -61,12 +61,20 @@ extension AppModel {
             let filled = try await runner.run(fillOnly)
             observer.runningAutomation = false
             guard filled.status == "succeeded" else { throw ScoutError.message("Field fill failed: \(filled.message)") }
-            guard try ax.snapshot(app:"com.apple.Safari").contains("Undo Test") || axString(try ax.resolve(Target(app:"com.apple.Safari",role:"AXTextField",label:"Name")),kAXValueAttribute) == "Undo Test" else { throw ScoutError.message("The field was not filled.") }
-            _ = try runner.undo(filled)
+            guard axString(try ax.resolve(Target(app:"com.apple.Safari",role:"AXTextField",label:"Name")),kAXValueAttribute) == "Undo Test" else { throw ScoutError.message("The field was not filled.") }
+            do { _ = try runner.undo(filled) } catch {
+                let now = executor.contextIdentity("com.apple.Safari")
+                log("Field Undo diagnostics: stored contexts \(filled.fieldUndo.map { $0.context }), current \(now); values \(filled.fieldUndo.map { axString((try? ax.resolve($0.target)) ?? AXUIElementCreateSystemWide(),kAXValueAttribute) }) expected \(filled.fieldUndo.map(\.after))")
+                throw error
+            }
             guard axString(try ax.resolve(Target(app:"com.apple.Safari",role:"AXTextField",label:"Name")),kAXValueAttribute).isEmpty else { throw ScoutError.message("Field Undo did not restore the empty field.") }
             log("Verified field fill and field Undo.")
             log("PASS: 16 native rehearsals; form server submissions, listing CSV values and Undo, CSV golden outputs and Undo, field Undo verified.")
-        } catch { log("FAIL: "+error.localizedDescription) }
+        } catch {
+            let idle = Date().timeIntervalSince(observer.lastInteraction)
+            if idle < 30 { log("INTERRUPTED: you used the keyboard or mouse \(Int(idle)) s ago, so the rehearsal stopped as designed. Rerun while leaving the Mac idle.") }
+            log("FAIL: "+error.localizedDescription)
+        }
         finish()
     }
     private func finish() {

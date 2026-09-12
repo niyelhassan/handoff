@@ -8,15 +8,17 @@ SCOUT_APP="${SCOUT_APP:-$SCOUT_ROOT/../Routine Scout.app}"
 RESULTS="${1:-$SCOUT_ROOT/TestResults/native-$(date +%H%M%S)}"
 mkdir -p "$RESULTS"
 rm -f "$RESULTS/integration-report.txt"
-pkill -f "RoutineScout --self-test" 2>/dev/null || true
-"$SCOUT_APP/Contents/MacOS/RoutineScout" --self-test "$RESULTS" --background --exit-after-test &
-PID=$!
+pkill -f "Routine Scout.app/Contents/MacOS/RoutineScout" 2>/dev/null || true
+sleep 1
+# Launch through LaunchServices so the app is its own "responsible process" for the Accessibility permission.
+# Launching the binary directly from a terminal would make macOS check the terminal's permission instead.
+open -n -g "$SCOUT_APP" --args --self-test "$RESULTS" --background --exit-after-test
 for _ in {1..240}; do
   if grep -qE '^(PASS|FAIL|BLOCKED)' "$RESULTS/integration-report.txt" 2>/dev/null; then break; fi
-  kill -0 $PID 2>/dev/null || break
   sleep 1
 done
 echo "--- $RESULTS/integration-report.txt ---"
 cat "$RESULTS/integration-report.txt" 2>/dev/null || echo "(no report written)"
-sleep 2; kill $PID 2>/dev/null || true
+echo
+sleep 2; pkill -f "RoutineScout --self-test" 2>/dev/null || true
 grep -q '^PASS' "$RESULTS/integration-report.txt"
