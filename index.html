@@ -1,0 +1,964 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Handoff</title>
+<meta name="description" content="A Mac app that notices when you repeat yourself and offers to finish the rest.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #fbfaf7;
+    --fg: #1a1917;
+    --muted: #6b6762;
+    --line: #e7e3dc;
+    --panel: #f3f0ea;
+    --panel-strong: #e8e3da;
+    --accent: #c2410c;
+    --accent-soft: rgba(194, 65, 12, 0.10);
+    --accent-ink: #ffffff;
+    --shadow: rgba(40, 30, 20, 0.18);
+    --sans: "Instrument Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --mono: "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #121110;
+      --fg: #ece9e4;
+      --muted: #a39d95;
+      --line: #2a2826;
+      --panel: #1b1a18;
+      --panel-strong: #262422;
+      --accent: #f59a5c;
+      --accent-soft: rgba(245, 154, 92, 0.14);
+      --accent-ink: #121110;
+      --shadow: rgba(0, 0, 0, 0.6);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { width: 100%; max-width: 1080px; margin: 0 auto; padding-inline: 24px; }
+  a { color: inherit; }
+  h1, h2, h3, p, ul, ol, dl, dd, figure { margin: 0; }
+  ul, ol { padding: 0; list-style: none; }
+  kbd {
+    font-family: var(--mono);
+    font-size: 0.85em;
+    padding: 1px 6px;
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    background: var(--panel);
+  }
+
+  .button {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 22px;
+    border: 1px solid var(--fg);
+    border-radius: 999px;
+    background: var(--fg);
+    color: var(--bg);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: transform 0.15s ease, opacity 0.15s ease;
+  }
+  .button:hover { opacity: 0.88; transform: translateY(-1px); }
+  .button.small { padding: 9px 16px; font-size: 15px; }
+  .button.accent { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .textlink {
+    font-weight: 500;
+    color: var(--muted);
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 1px;
+  }
+  .textlink:hover { color: var(--fg); border-color: var(--fg); }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+  /* Nav */
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--bg) 86%, transparent);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid transparent;
+  }
+  .nav.scrolled { border-color: var(--line); }
+  .nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 64px; }
+  .brand { font-weight: 700; letter-spacing: -0.02em; text-decoration: none; font-size: 18px; display: inline-flex; align-items: center; gap: 9px; }
+  .brand i {
+    width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent);
+    display: inline-block;
+  }
+  .nav-links { display: flex; align-items: center; gap: 26px; font-size: 15px; }
+  .nav-links a:not(.button) { color: var(--muted); text-decoration: none; }
+  .nav-links a:not(.button):hover { color: var(--fg); }
+  @media (max-width: 720px) { .nav-links a:not(.button) { display: none; } }
+
+  /* Hero */
+  .hero { padding-block: 88px 0; text-align: center; }
+  .pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: 999px;
+    background: var(--accent-soft); color: var(--accent);
+    font-size: 13px; font-weight: 600; letter-spacing: 0.02em;
+    margin-bottom: 28px;
+  }
+  .pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .hero h1 {
+    font-size: clamp(44px, 7.2vw, 88px);
+    line-height: 0.98;
+    letter-spacing: -0.04em;
+    font-weight: 700;
+    max-width: 12ch;
+    margin-inline: auto;
+    text-wrap: balance;
+  }
+  .hero .sub {
+    margin: 28px auto 0;
+    font-size: clamp(18px, 2.3vw, 23px);
+    color: var(--muted);
+    max-width: 36ch;
+    text-wrap: pretty;
+  }
+  .hero .cta { margin-top: 36px; display: flex; gap: 22px; align-items: center; justify-content: center; flex-wrap: wrap; }
+  .hero .fine { margin-top: 16px; font-size: 13px; color: var(--muted); }
+
+  /* Demo window */
+  .stage {
+    margin-top: 72px;
+    padding: clamp(20px, 5vw, 56px) clamp(12px, 4vw, 48px) 0;
+    background: linear-gradient(to bottom, transparent, var(--panel) 30%);
+    border-radius: 24px 24px 0 0;
+  }
+  .demo {
+    max-width: 960px;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-bottom: 0;
+    border-radius: 14px 14px 0 0;
+    background: var(--bg);
+    box-shadow: 0 30px 60px -30px var(--shadow), 0 2px 6px -2px var(--shadow);
+    overflow: hidden;
+    text-align: left;
+  }
+  .demo .chrome {
+    display: flex; align-items: center; gap: 7px;
+    height: 34px; padding-inline: 14px;
+    border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  .demo .chrome i { width: 10px; height: 10px; border-radius: 50%; background: var(--panel-strong); display: block; }
+  .demo .chrome span { margin-left: auto; margin-right: auto; font-size: 12px; color: var(--muted); }
+  .demo svg { display: block; width: 100%; height: auto; font-family: var(--sans); }
+  .demo .caption {
+    border-top: 1px solid var(--line);
+    padding: 12px 18px;
+    font-size: 14px;
+    color: var(--muted);
+  }
+
+  /* Sections */
+  section { padding-block: 104px; }
+  section + section { border-top: 1px solid var(--line); }
+  .eyebrow {
+    font-size: 13px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+    color: var(--accent); margin-bottom: 18px;
+  }
+  .h2 {
+    font-size: clamp(30px, 4.2vw, 46px);
+    line-height: 1.08;
+    letter-spacing: -0.03em;
+    font-weight: 700;
+    max-width: 20ch;
+    text-wrap: balance;
+  }
+  .h2 em { font-style: italic; font-weight: 400; color: var(--muted); }
+  .intro {
+    margin-top: 20px;
+    font-size: clamp(17px, 2vw, 20px);
+    color: var(--muted);
+    max-width: 48ch;
+    text-wrap: pretty;
+  }
+  .head { margin-bottom: 56px; }
+  .head.center { text-align: center; }
+  .head.center .h2, .head.center .intro { margin-inline: auto; }
+
+  /* Statement band */
+  .band { padding-block: 72px; text-align: center; }
+  .band .statement {
+    font-size: clamp(26px, 4vw, 44px);
+    line-height: 1.15;
+    letter-spacing: -0.03em;
+    font-weight: 500;
+    max-width: 22ch;
+    margin-inline: auto;
+    text-wrap: balance;
+  }
+  .band .statement strong { font-weight: 700; color: var(--accent); }
+
+  /* Steps */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; counter-reset: step; }
+  .steps li {
+    counter-increment: step;
+    padding: 28px 26px 30px;
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+  }
+  .steps li::before {
+    content: counter(step, decimal-leading-zero);
+    display: block;
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--accent);
+    margin-bottom: 26px;
+  }
+  .steps h3 { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 10px; }
+  .steps p { color: var(--muted); font-size: 16px; text-wrap: pretty; }
+
+  /* Rhythm */
+  .rhythm-grid { display: grid; grid-template-columns: 1.1fr 0.9fr; gap: 56px; align-items: center; }
+  .terminal {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    background: var(--panel);
+    padding: 26px 28px;
+    font-family: var(--mono);
+    font-size: clamp(13px, 1.6vw, 16px);
+    line-height: 2.2;
+    overflow-x: auto;
+  }
+  .terminal .ln { white-space: nowrap; display: flex; align-items: center; flex-wrap: wrap; column-gap: 0.2em; }
+  .terminal .ln .n { color: var(--muted); opacity: 0.6; width: 2.2em; flex: none; }
+  .terminal .tok { display: inline-block; }
+  .terminal .sep { color: var(--muted); padding-inline: 0.3em; }
+  .terminal .note {
+    display: inline-block;
+    margin-left: 0.9em;
+    padding: 1px 12px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--accent-ink);
+    font-family: var(--sans);
+    font-size: 0.9em;
+    font-weight: 600;
+    line-height: 1.8;
+  }
+  .js .terminal.armed .tok,
+  .js .terminal.armed .note { opacity: 0; transform: translateY(4px); }
+  .js .terminal.play .tok,
+  .js .terminal.play .note {
+    opacity: 1; transform: none;
+    transition: opacity 0.25s ease var(--d), transform 0.25s ease var(--d);
+  }
+  .signals { display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px; margin-top: 28px; }
+  .signals li { font-size: 15px; color: var(--muted); padding-left: 16px; position: relative; }
+  .signals li::before { content: ""; position: absolute; left: 0; top: 0.65em; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+  .signals li strong { display: block; color: var(--fg); font-weight: 600; }
+
+  /* Cases */
+  .cases { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+  .cases li {
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 28px 26px;
+    background: var(--bg);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .cases li:hover { transform: translateY(-2px); box-shadow: 0 18px 40px -28px var(--shadow); }
+  .trail { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 0; margin-bottom: 20px; }
+  .trail span {
+    font-family: var(--mono);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    color: var(--muted);
+  }
+  .trail span.hot { color: var(--accent); border-color: transparent; background: var(--accent-soft); }
+  .trail i { width: 22px; height: 1px; background: var(--line); display: inline-block; }
+  .cases h3 { font-size: 19px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.3; }
+  .cases h3 .to { color: var(--muted); font-weight: 400; padding-inline: 0.35em; }
+  .cases p { margin-top: 10px; color: var(--muted); font-size: 15.5px; text-wrap: pretty; }
+  .cases code { font-family: var(--mono); font-size: 12.5px; color: var(--muted); display: block; margin-top: 14px; }
+
+  /* Nots */
+  .nots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px 40px; }
+  .nots h3 { font-size: 24px; font-weight: 700; letter-spacing: -0.025em; line-height: 1.2; }
+  .nots p { margin-top: 10px; color: var(--muted); font-size: 16px; max-width: 30ch; text-wrap: pretty; }
+  .nots + .closing { margin-top: 56px; font-size: clamp(20px, 2.4vw, 26px); letter-spacing: -0.02em; font-weight: 500; }
+
+  /* Privacy */
+  .panel {
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--panel);
+    padding: clamp(28px, 4vw, 48px);
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    gap: 40px;
+    align-items: start;
+  }
+  .panel .head { margin-bottom: 0; }
+  .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 26px 32px; }
+  .controls li strong { display: block; font-weight: 700; margin-bottom: 4px; letter-spacing: -0.01em; }
+  .controls li span { color: var(--muted); font-size: 15.5px; }
+
+  /* FAQ */
+  .faq-grid { display: grid; grid-template-columns: 0.8fr 1.2fr; gap: 56px; }
+  .faq div { padding-block: 20px; border-top: 1px solid var(--line); }
+  .faq div:first-child { border-top: 0; padding-top: 0; }
+  .faq dt { font-weight: 700; letter-spacing: -0.01em; font-size: 18px; }
+  .faq dd { margin-top: 6px; color: var(--muted); text-wrap: pretty; }
+
+  /* Stack */
+  .stack { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  .stack li { padding: 22px 22px 24px; border: 1px solid var(--line); border-radius: 16px; }
+  .stack li strong { display: block; font-weight: 700; letter-spacing: -0.01em; margin-bottom: 6px; }
+  .stack li span { color: var(--muted); font-size: 15px; }
+  .team-note { margin-top: 40px; color: var(--muted); max-width: 56ch; text-wrap: pretty; }
+
+  /* Closing */
+  .close { padding-block: 104px; }
+  .close .box {
+    border-radius: 24px;
+    background: var(--fg);
+    color: var(--bg);
+    padding: clamp(48px, 7vw, 88px) 24px;
+    text-align: center;
+  }
+  .close h2 {
+    font-size: clamp(34px, 5.4vw, 64px);
+    line-height: 1.0;
+    letter-spacing: -0.04em;
+    font-weight: 700;
+    max-width: 14ch;
+    margin-inline: auto;
+    text-wrap: balance;
+  }
+  .close p { margin: 20px auto 0; max-width: 40ch; opacity: 0.75; text-wrap: pretty; }
+  .close .cta { margin-top: 32px; }
+  .close .button { background: var(--bg); color: var(--fg); border-color: var(--bg); }
+  .close code { font-family: var(--mono); font-size: 0.9em; }
+
+  footer { border-top: 1px solid var(--line); padding-block: 28px; font-size: 14px; color: var(--muted); }
+  footer .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  footer a { text-decoration-color: var(--line); text-underline-offset: 3px; }
+
+  /* Reveal */
+  .js .reveal { opacity: 0; transform: translateY(14px); }
+  .js .reveal.in { opacity: 1; transform: none; transition: opacity 0.6s ease, transform 0.6s ease; }
+
+  @media (max-width: 900px) {
+    .rhythm-grid, .panel, .faq-grid { grid-template-columns: 1fr; gap: 32px; }
+    .stack { grid-template-columns: 1fr 1fr; }
+  }
+  @media (max-width: 720px) {
+    section, .close { padding-block: 72px; }
+    .hero { padding-top: 56px; }
+    .steps, .cases, .nots, .stack, .controls, .signals { grid-template-columns: 1fr; }
+    .head { margin-bottom: 36px; }
+    .terminal .ln { white-space: normal; }
+    .terminal .note { margin-left: 0; margin-top: 4px; flex-basis: 100%; width: max-content; max-width: 100%; }
+    .terminal .arrow { display: none; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    * { transition: none !important; animation: none !important; }
+    .js .reveal { opacity: 1; transform: none; }
+    .js .terminal.armed .tok, .js .terminal.armed .note { opacity: 1; transform: none; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav" aria-label="Primary">
+  <div class="wrap">
+    <a class="brand" href="#top"><i aria-hidden="true"></i>Handoff</a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#cases">Where it shows up</a>
+      <a href="#privacy">Privacy</a>
+      <a class="button small" href="https://github.com/niyelhassan/handoff">Get it on GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero" id="top">
+  <div class="wrap">
+    <span class="pill"><i aria-hidden="true"></i>Open source · macOS 14+ · Built at HackCMU 2026</span>
+    <h1>It notices you repeating yourself.</h1>
+    <p class="sub">Do something three times by hand. A card slides in and offers to do the rest.</p>
+    <p class="cta">
+      <a class="button" href="https://github.com/niyelhassan/handoff">Get it on GitHub</a>
+      <a class="textlink" href="#how">See how it works</a>
+    </p>
+    <p class="fine">Free. No account. Bring your own Grok API key.</p>
+  </div>
+  <div class="wrap">
+    <div class="stage">
+      <figure class="demo" aria-labelledby="demo-caption">
+        <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>Tuesday, 2:14 pm</span></div>
+        <svg id="scene" viewBox="0 0 960 440" role="img" aria-label="A spreadsheet of client names beside a Finder window. A cursor copies a name, switches to Finder, makes a new folder and pastes the name, three times. A card slides in from the right asking whether to generate the rest, and the remaining folders appear on their own.">
+          <defs>
+            <filter id="pop-shadow" x="-10%" y="-10%" width="120%" height="140%">
+              <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="var(--shadow)"/>
+            </filter>
+          </defs>
+          <g id="g-scene"></g>
+        </svg>
+        <figcaption class="caption" id="demo-caption">Copy a client’s name, switch to Finder, new folder, paste, return. Three times by hand. The other nine on their own.</figcaption>
+      </figure>
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="band reveal">
+    <div class="wrap">
+      <p class="statement">Each pass takes ten seconds. The roster has forty clients. You wouldn't call it a task worth automating. <strong>You'd call it Tuesday.</strong></p>
+    </div>
+  </div>
+
+  <section id="how" aria-labelledby="how-h">
+    <div class="wrap">
+      <div class="head reveal">
+        <p class="eyebrow">How it works</p>
+        <h2 class="h2" id="how-h">Three times by hand. <em>Then it asks.</em></h2>
+        <p class="intro">Nothing to record, describe, or configure. You just start, the way you always do.</p>
+      </div>
+      <ol class="steps reveal">
+        <li>
+          <h3>You work.</h3>
+          <p>Copy, switch windows, new folder, paste, return, next row. In Excel and Finder, Safari and Numbers, whatever you already use.</p>
+        </li>
+        <li>
+          <h3>It notices.</h3>
+          <p>A deterministic pattern finder spots the same sequence of actions on three different pieces of data. Grok confirms it is a real routine, not a coincidence. A card slides in from the right edge of the screen.</p>
+        </li>
+        <li>
+          <h3>You say yes.</h3>
+          <p>Grok writes a short plan from a fixed catalog of steps. You see the steps before anything runs. Click <strong>Do the rest</strong> and it finishes the remaining rows. Click <strong>Not now</strong> and it stays quiet.</p>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="rhythm" aria-labelledby="rhythm-h">
+    <div class="wrap">
+      <div class="rhythm-grid">
+        <div class="reveal">
+          <p class="eyebrow">The rhythm</p>
+          <h2 class="h2" id="rhythm-h">It doesn't read your screen. <em>It watches your hands.</em></h2>
+          <p class="intro">A handful of signals is enough to see a loop. Plain typing is never recorded.</p>
+          <ul class="signals">
+            <li><strong>Copies and pastes</strong><kbd>⌘C</kbd> followed by a clipboard change, and <kbd>⌘V</kbd>. The copied text is what tells passes apart.</li>
+            <li><strong>Command shortcuts</strong><kbd>⌘⇧N</kbd>, <kbd>⌘S</kbd>, <kbd>⌘E</kbd> and a few others. Not the letters you type.</li>
+            <li><strong>Clicks</strong>Resolved to the button, cell or field under the pointer, not to pixel coordinates.</li>
+            <li><strong>App switches and files</strong>Which app is in front, and new files landing in Downloads, Desktop or Documents.</li>
+          </ul>
+        </div>
+        <div class="terminal reveal" id="terminal" aria-label="Three identical lines of actions: command C, command tab, command shift N, command V, return, command tab, down arrow. After the third line, a note reads: want me to generate the rest?">
+          <div class="ln" aria-hidden="true"><span class="n">1</span><span class="tok">⌘C</span><span class="tok sep">·</span><span class="tok">⌘⇥</span><span class="tok sep">·</span><span class="tok">⌘⇧N</span><span class="tok sep">·</span><span class="tok">⌘V</span><span class="tok sep">·</span><span class="tok">↩</span><span class="tok sep">·</span><span class="tok">⌘⇥</span><span class="tok sep">·</span><span class="tok">↓</span></div>
+          <div class="ln" aria-hidden="true"><span class="n">2</span><span class="tok">⌘C</span><span class="tok sep">·</span><span class="tok">⌘⇥</span><span class="tok sep">·</span><span class="tok">⌘⇧N</span><span class="tok sep">·</span><span class="tok">⌘V</span><span class="tok sep">·</span><span class="tok">↩</span><span class="tok sep">·</span><span class="tok">⌘⇥</span><span class="tok sep">·</span><span class="tok">↓</span></div>
+          <div class="ln" aria-hidden="true"><span class="n">3</span><span class="tok">⌘C</span><span class="tok sep">·</span><span class="tok">⌘⇥</span><span class="tok sep">·</span><span class="tok">⌘⇧N</span><span class="tok sep">·</span><span class="tok">⌘V</span><span class="tok sep">·</span><span class="tok">↩</span><span class="tok sep">·</span><span class="tok">⌘⇥</span><span class="tok sep">·</span><span class="tok">↓</span><span class="tok arrow sep">←</span><span class="note">want me to generate the rest?</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cases" aria-labelledby="cases-h">
+    <div class="wrap">
+      <div class="head center reveal">
+        <p class="eyebrow">Where it shows up</p>
+        <h2 class="h2" id="cases-h">The work nobody automates, <em>because it's only twenty minutes.</em></h2>
+        <p class="intro">Each of these is a loop Handoff recognizes today. You do the first three. It builds the plan and does the rest.</p>
+      </div>
+      <ul class="cases reveal">
+        <li>
+          <div class="trail" aria-hidden="true"><span>Excel</span><i></i><span class="hot">Finder</span><i></i><span>Excel</span></div>
+          <h3>Copy a client’s name<span class="to" aria-hidden="true">→</span>new folder<span class="to" aria-hidden="true">→</span>paste the name</h3>
+          <p>A project manager setting up a workspace folder for every client on the roster. After the third folder: “Notice you’re creating folders from this list—want me to generate the rest?”</p>
+          <code>readCSV → forEach → createFolder Clients/{{row.first}}</code>
+        </li>
+        <li>
+          <div class="trail" aria-hidden="true"><span>Sheet</span><i></i><span class="hot">Maps</span><i></i><span>Sheet</span></div>
+          <h3>Copy an address<span class="to" aria-hidden="true">→</span>get directions<span class="to" aria-hidden="true">→</span>type the drive time back</h3>
+          <p>A list of client sites and the minutes from the office. Handoff routes the remaining addresses itself with Apple Maps and writes a drive-times table next to the sheet.</p>
+          <code>readCSV → forEach → driveTime → appendCSV {{stem}}-drive-times.csv</code>
+        </li>
+        <li>
+          <div class="trail" aria-hidden="true"><span>Download</span><i></i><span class="hot">Spreadsheet</span><i></i><span>Export</span></div>
+          <h3>Open the weekly export<span class="to" aria-hidden="true">→</span>drop, trim, sort<span class="to" aria-hidden="true">→</span>save a clean copy</h3>
+          <p>The same cleanup on every sales CSV. The plan is checked against the file you produced by hand before it is offered, and it can run each time a new export lands.</p>
+          <code>readCSV → transformTable… → writeCSV {{stem}}-clean.csv</code>
+        </li>
+        <li>
+          <div class="trail" aria-hidden="true"><span>Sheet</span><i></i><span class="hot">Web form</span><i></i><span>Submit</span></div>
+          <h3>Copy name and email<span class="to" aria-hidden="true">→</span>fill the form<span class="to" aria-hidden="true">→</span>submit, next row</h3>
+          <p>New hires into the HR form. Handoff fills the fields through the browser’s accessibility tree and asks you before every submit, because a submit cannot be undone.</p>
+          <code>readCSV → forEach → setValue Name, Email → ask → click Submit</code>
+        </li>
+        <li>
+          <div class="trail" aria-hidden="true"><span>Downloads</span><i></i><span class="hot">Rename</span><i></i><span>Invoices</span></div>
+          <h3>Download an invoice<span class="to" aria-hidden="true">→</span>rename with the date<span class="to" aria-hidden="true">→</span>move it to Invoices</h3>
+          <p>Filing by hand, three PDFs in a row. Afterwards it can file each new PDF as it arrives, and every move can be undone.</p>
+          <code>moveFile {{file}} → Invoices/{{today}}-{{stem}}.pdf</code>
+        </li>
+        <li>
+          <div class="trail" aria-hidden="true"><span>Screenshot</span><i></i><span class="hot">Resize</span><i></i><span>Web/</span></div>
+          <h3>Open a screenshot<span class="to" aria-hidden="true">→</span>resize to 1280<span class="to" aria-hidden="true">→</span>export a JPEG</h3>
+          <p>Images for a blog post, one after another. The remaining screenshots are resized and converted without opening an editor.</p>
+          <code>resizeImage → convertImage → Web/{{stem}}.jpg</code>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="not" aria-labelledby="not-h">
+    <div class="wrap">
+      <div class="head reveal">
+        <p class="eyebrow">What it isn't</p>
+        <h2 class="h2" id="not-h">Nothing to set up. <em>Nothing to describe.</em></h2>
+      </div>
+      <ul class="nots reveal">
+        <li>
+          <h3>Not a macro you record.</h3>
+          <p>There is no record button. It does not replay your keystrokes; it rebuilds the task from what the steps meant.</p>
+        </li>
+        <li>
+          <h3>Not an agent you prompt.</h3>
+          <p>You don't describe the task. You've already shown it, by doing it three times.</p>
+        </li>
+        <li>
+          <h3>Not a workflow you build.</h3>
+          <p>Nothing to configure in advance. Keep the routine and let it run when a file lands, or throw it away when the batch is done.</p>
+        </li>
+      </ul>
+      <p class="closing reveal">It only speaks up about what you're doing right now, in a burst, and only after the third time.</p>
+    </div>
+  </section>
+
+  <section id="privacy" aria-labelledby="privacy-h">
+    <div class="wrap">
+      <div class="panel reveal">
+        <div class="head">
+          <p class="eyebrow">Privacy and control</p>
+          <h2 class="h2" id="privacy-h">Yours, <em>on your machine.</em></h2>
+          <p class="intro">What it sees stays in a local database. What it does waits for your click.</p>
+        </div>
+        <ul class="controls">
+          <li><strong>Local memory.</strong><span>Activity lives in a SQLite file on your Mac: fourteen days of actions, forty-eight hours of details, then gone. “Delete everything” wipes it.</span></li>
+          <li><strong>What reaches Grok.</strong><span>Only when a repeat is detected, and only that candidate: the sequence of actions plus the window titles, URLs and copied text that make up the three passes. Never your typing, never a screen recording.</span></li>
+          <li><strong>Never plain typing.</strong><span>Password fields, private browser windows and apps or sites you exclude produce nothing. Pause it from the menu bar at any time.</span></li>
+          <li><strong>Waits for you.</strong><span>Every run starts with the card and your click. Anything irreversible, like a submit button, asks first. Touch the keyboard or mouse during a run and it stops.</span></li>
+          <li><strong>Undo.</strong><span>Files it wrote, moved or renamed and rows it appended can be undone exactly, and it refuses to overwrite anything you edited afterwards.</span></li>
+          <li><strong>Your key.</strong><span>Plans are built with your own xAI API key, stored owner-only on disk. There is no Handoff account and no Handoff server.</span></li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="details" aria-labelledby="faq-h">
+    <div class="wrap">
+      <div class="faq-grid">
+        <div class="head reveal">
+          <p class="eyebrow">Details</p>
+          <h2 class="h2" id="faq-h">The questions <em>people ask first.</em></h2>
+        </div>
+        <dl class="faq reveal">
+          <div>
+            <dt>Which apps does it work with?</dt>
+            <dd>It watches every app through macOS Accessibility, so there is no plugin per app. It reads the most from Finder, Safari, Excel, Numbers and Mail. The actions it can take come from a fixed catalog: folders and files, CSV and table transforms, images, drive times, filling and clicking in web pages, appending to Numbers or Excel, and running a Shortcut.</dd>
+          </div>
+          <div>
+            <dt>How many times do I have to do something before it offers?</dt>
+            <dd>Three. It needs the same sequence of actions with three different pieces of data moving through it. A few shapes, like cleaning a CSV or filling a form, are offered after two.</dd>
+          </div>
+          <div>
+            <dt>What if it's wrong about the pattern?</dt>
+            <dd>Click <strong>Not now</strong>, or just keep working; the card slides away and that suggestion is not repeated for a week. If a run goes wrong, touch the keyboard to stop it and use <strong>Undo</strong> for anything it wrote.</dd>
+          </div>
+          <div>
+            <dt>Does it run in the background all day?</dt>
+            <dd>It sits in the menu bar and watches while it is on, but it only speaks up during a burst, at most once every thirty seconds, and never while you are in a full-screen app. Pause it whenever you like.</dd>
+          </div>
+          <div>
+            <dt>Does it need an internet connection?</dt>
+            <dd>Detecting the pattern is local. Confirming it and writing the plan uses Grok, so that step needs a connection and your API key. Running the plan is local again, except drive times, which use Apple Maps.</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section id="team" aria-labelledby="team-h">
+    <div class="wrap">
+      <div class="head reveal">
+        <p class="eyebrow">Under the hood</p>
+        <h2 class="h2" id="team-h">Built in a weekend, <em>at Carnegie Mellon.</em></h2>
+      </div>
+      <ul class="stack reveal">
+        <li><strong>Swift, SwiftUI, AppKit</strong><span>A native Swift package. No Electron, no web view.</span></li>
+        <li><strong>Accessibility + FSEvents</strong><span>Clicks resolve to real UI elements; new files are noticed as they land.</span></li>
+        <li><strong>Deterministic pattern finder</strong><span>Finds repeated windows of actions with distinct data. No model call until a candidate exists.</span></li>
+        <li><strong>Grok, fenced in</strong><span>Strict JSON schema, a whitelist of steps per pattern shape, validation and repair before anything runs.</span></li>
+      </ul>
+      <p class="team-note reveal">Handoff started at HackCMU 2026, after one too many afternoons of copying things between windows. The code, the demo routines and the tests are on GitHub.</p>
+    </div>
+  </section>
+
+  <div class="close">
+    <div class="wrap">
+      <div class="box reveal">
+        <h2>Do the first three. Hand off the rest.</h2>
+        <p>Clone the repo, run <code>scripts/build-app.sh</code>, allow Accessibility, add a Grok key. Then go do something three times.</p>
+        <p class="cta"><a class="button" href="https://github.com/niyelhassan/handoff">Get it on GitHub</a></p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 Handoff</span>
+    <span><a href="https://github.com/niyelhassan/handoff">Source</a> · <a href="https://github.com/niyelhassan/handoff/issues">Questions and issues</a></span>
+  </div>
+</footer>
+
+<script>
+document.documentElement.classList.add('js');
+
+// Scene animation: Excel roster on the left, Finder on the right.
+(function () {
+  'use strict';
+
+  var NS = 'http://www.w3.org/2000/svg';
+  var svg = document.getElementById('scene');
+  var root = document.getElementById('g-scene');
+
+  var ROWS = [
+    'Acme Robotics', 'Blue Harbor Dental', 'Carnegie Bakery', 'Duquesne Legal',
+    'Eastside Yoga', 'Fifth Ave Florist', 'Grandview Realty', 'Highland Pediatrics',
+    'Iron City Brewing', 'Juniper Design Co', 'Kinzua Outfitters', 'Lawrenceville Tattoo'
+  ];
+  var MANUAL = 3;
+
+  // Layout (viewBox units)
+  var SHEET = { x: 20, y: 20, w: 440, h: 400 };
+  var FIND  = { x: 500, y: 20, w: 440, h: 400 };
+  var BAR_H = 34;
+  var HEAD_Y = SHEET.y + BAR_H;
+  var ROW0 = HEAD_Y + 30;
+  var ROW_H = 28;
+  var COL_A = SHEET.x + 40;                 // name column x (after row numbers)
+  var FROW0 = FIND.y + BAR_H + 30;
+  var FROW_H = 28;
+  var POP   = { w: 330, h: 104 };
+  POP.x = 960 - POP.w - 14; POP.y = 46;
+  var YES   = { x: POP.x + POP.w - 138, y: POP.y + 62, w: 122, h: 28 };
+  var NOTNOW= { x: POP.x + 16, y: POP.y + 62, w: 76, h: 28 };
+
+  var PASS = 2.0;
+  var POP_IN = MANUAL * PASS + 0.45;   // 6.45
+  var PRESS = POP_IN + 1.15;           // 7.6
+  var POP_OUT = PRESS + 0.2;           // 7.8
+  var AUTO_START = POP_OUT + 0.15;     // 7.95
+  var AUTO_STEP = 0.14;
+  var DURATION = AUTO_START + (ROWS.length - MANUAL) * AUTO_STEP + 1.4;
+  var IDLE = { x: 470, y: 404 };
+  var STATIC_T = POP_IN + 0.6;
+
+  function el(name, attrs, parent) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) if (attrs.hasOwnProperty(k)) e.setAttribute(k, attrs[k]);
+    (parent || root).appendChild(e);
+    return e;
+  }
+  function text(str, attrs, parent) {
+    var t = el('text', attrs, parent);
+    t.textContent = str;
+    return t;
+  }
+
+  // ----- Build the scene -----
+  function windowFrame(box, title) {
+    var g = el('g', {});
+    el('rect', { x: box.x, y: box.y, width: box.w, height: box.h, rx: 10, fill: 'var(--bg)', stroke: 'var(--line)' }, g);
+    var bar = el('path', {
+      d: 'M' + (box.x + 10) + ' ' + box.y + ' h' + (box.w - 20) + ' a10 10 0 0 1 10 10 v' + (BAR_H - 10) + ' h-' + box.w + ' v-' + (BAR_H - 10) + ' a10 10 0 0 1 10 -10 z',
+      fill: 'var(--panel)'
+    }, g);
+    el('line', { x1: box.x, y1: box.y + BAR_H, x2: box.x + box.w, y2: box.y + BAR_H, stroke: 'var(--line)' }, g);
+    for (var i = 0; i < 3; i++) el('circle', { cx: box.x + 18 + i * 16, cy: box.y + BAR_H / 2, r: 5, fill: 'var(--muted)', opacity: 0.35 }, g);
+    var t = text(title, { x: box.x + box.w / 2, y: box.y + BAR_H / 2 + 4, 'text-anchor': 'middle', 'font-size': 12, 'font-weight': 500, fill: 'var(--muted)' }, g);
+    return { g: g, bar: bar, title: t };
+  }
+
+  var sheetWin = windowFrame(SHEET, 'Client roster.csv — Excel');
+  var findWin  = windowFrame(FIND, 'Clients');
+
+  // Sheet header
+  text('1', { x: COL_A - 12, y: HEAD_Y + 20, 'font-size': 11, 'text-anchor': 'end', fill: 'var(--muted)' });
+  el('line', { x1: SHEET.x, y1: ROW0, x2: SHEET.x + SHEET.w, y2: ROW0, stroke: 'var(--line)' });
+  el('line', { x1: COL_A, y1: HEAD_Y, x2: COL_A, y2: SHEET.y + SHEET.h, stroke: 'var(--line)' });
+  text('Client', { x: COL_A + 12, y: ROW0 - 9, 'font-size': 12, 'font-weight': 600, fill: 'var(--fg)' });
+
+  var rowHl = el('rect', { x: SHEET.x + 1, y: ROW0, width: SHEET.w - 2, height: ROW_H, fill: 'var(--accent)', opacity: 0.08 });
+
+  ROWS.forEach(function (name, i) {
+    var y = ROW0 + i * ROW_H;
+    el('line', { x1: SHEET.x, y1: y + ROW_H, x2: SHEET.x + SHEET.w, y2: y + ROW_H, stroke: 'var(--line)', opacity: 0.7 });
+    text(String(i + 2), { x: COL_A - 12, y: y + 19, 'font-size': 11, 'text-anchor': 'end', fill: 'var(--muted)' });
+    text(name, { x: COL_A + 12, y: y + 19, 'font-size': 13, fill: 'var(--fg)' });
+  });
+  var selName = el('rect', { x: COL_A + 1, y: ROW0 + 1, width: SHEET.x + SHEET.w - COL_A - 3, height: ROW_H - 2, rx: 2, fill: 'none', stroke: 'var(--accent)', 'stroke-width': 1.5 });
+
+  // Finder header + folder rows
+  text('Name', { x: FIND.x + 46, y: FROW0 - 9, 'font-size': 11, 'font-weight': 500, fill: 'var(--muted)', 'letter-spacing': '0.06em' });
+  el('line', { x1: FIND.x, y1: FROW0, x2: FIND.x + FIND.w, y2: FROW0, stroke: 'var(--line)' });
+  text('0 items', { x: FIND.x + FIND.w / 2, y: FIND.y + FIND.h - 10, 'font-size': 11, 'text-anchor': 'middle', fill: 'var(--muted)' }).setAttribute('id', 'count');
+  var countEl = document.getElementById('count');
+
+  var folderEls = [], folderNames = [];
+  ROWS.forEach(function (name, i) {
+    var y = FROW0 + i * FROW_H;
+    var g = el('g', {});
+    el('rect', { x: FIND.x + 1, y: y, width: FIND.w - 2, height: FROW_H, fill: i % 2 ? 'var(--panel)' : 'none', opacity: 0.6 }, g);
+    // folder icon
+    el('path', { d: 'M' + (FIND.x + 18) + ' ' + (y + 9) + ' h7 l3 3 h10 a2 2 0 0 1 2 2 v8 a2 2 0 0 1 -2 2 h-20 a2 2 0 0 1 -2 -2 v-11 a2 2 0 0 1 2 -2 z', fill: 'var(--accent)', opacity: 0.55 }, g);
+    folderNames.push(text(name, { x: FIND.x + 46, y: y + 19, 'font-size': 13, fill: 'var(--fg)' }, g));
+    folderEls.push(g);
+  });
+  var editBox = el('rect', { x: FIND.x + 42, y: FROW0 + 3, width: 180, height: FROW_H - 6, rx: 3, fill: 'var(--bg)', stroke: 'var(--accent)', 'stroke-width': 1.5 });
+  var editText = text('untitled folder', { x: FIND.x + 46, y: FROW0 + 19, 'font-size': 13, fill: 'var(--fg)' });
+
+  // Card (slides in from the right, like the real one)
+  var pop = el('g', { filter: 'url(#pop-shadow)' });
+  el('rect', { x: POP.x, y: POP.y, width: POP.w, height: POP.h, rx: 12, fill: 'var(--bg)', stroke: 'var(--line)' }, pop);
+  el('circle', { cx: POP.x + 22, cy: POP.y + 22, r: 4, fill: 'var(--accent)' }, pop);
+  text('You’ve done this 3 times', { x: POP.x + 34, y: POP.y + 26, 'font-size': 11, 'font-weight': 600, fill: 'var(--muted)' }, pop);
+  text('Notice you’re creating folders from this list—', { x: POP.x + 16, y: POP.y + 46, 'font-size': 12.5, fill: 'var(--fg)' }, pop);
+  text('want me to generate the rest?', { x: POP.x + 16, y: POP.y + 60, 'font-size': 12.5, fill: 'var(--fg)' }, pop);
+  el('rect', { x: NOTNOW.x, y: NOTNOW.y + 4, width: NOTNOW.w, height: NOTNOW.h, rx: 6, fill: 'none', stroke: 'var(--line)' }, pop);
+  text('Not now', { x: NOTNOW.x + NOTNOW.w / 2, y: NOTNOW.y + 22, 'font-size': 12, 'text-anchor': 'middle', fill: 'var(--muted)' }, pop);
+  var yesBtn = el('rect', { x: YES.x, y: YES.y + 4, width: YES.w, height: YES.h, rx: 6, fill: 'var(--accent)' }, pop);
+  text('Generate the rest', { x: YES.x + YES.w / 2, y: YES.y + 22, 'font-size': 12, 'font-weight': 600, 'text-anchor': 'middle', fill: 'var(--accent-ink)' }, pop);
+
+  // Key chip (what the app sees)
+  var chip = el('g', {});
+  var chipRect = el('rect', { x: 0, y: 0, width: 40, height: 20, rx: 5, fill: 'var(--fg)' }, chip);
+  var chipText = text('', { x: 20, y: 14, 'font-size': 11, 'font-weight': 500, 'text-anchor': 'middle', fill: 'var(--bg)' }, chip);
+
+  // Cursor
+  var cursor = el('g', {});
+  el('path', { d: 'M0 0 L0 17 L4.6 13.2 L7.6 20 L10.2 18.9 L7.2 12.2 L12.5 12.2 Z', fill: 'var(--fg)', stroke: 'var(--bg)', 'stroke-width': 1.2, 'stroke-linejoin': 'round' }, cursor);
+
+  // ----- Timeline -----
+  function nameCell(i) { return { x: COL_A + 70, y: ROW0 + i * ROW_H + 15 }; }
+  function folderRow(i) { return { x: FIND.x + 200, y: FROW0 + i * FROW_H + 15 }; }
+  var YES_PT = { x: YES.x + YES.w / 2 + 6, y: YES.y + YES.h / 2 + 6 };
+
+  var keys = [];   // [t, x, y]
+  var chips = [];  // [t, label]
+  function kf(t, p) { keys.push([t, p.x, p.y]); }
+
+  kf(0, IDLE);
+  for (var p = 0; p < MANUAL; p++) {
+    var s = p * PASS;
+    kf(s + 0.25, nameCell(p)); kf(s + 0.55, nameCell(p));
+    kf(s + 0.80, folderRow(p)); kf(s + 1.55, folderRow(p));
+    kf(s + 1.85, nameCell(p + 1)); kf(s + 2.0, nameCell(p + 1));
+    chips.push([s + 0.30, '⌘C'], [s + 0.55, '⌘⇥'], [s + 0.80, '⌘⇧N'], [s + 1.05, '⌘V'], [s + 1.28, '↩'], [s + 1.55, '⌘⇥'], [s + 1.82, '↓']);
+  }
+  kf(POP_IN + 0.4, YES_PT); kf(PRESS + 0.3, YES_PT);
+  kf(PRESS + 0.8, IDLE); kf(DURATION, IDLE);
+
+  function ease(u) { return u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2; }
+  function cursorAt(t) {
+    for (var i = 0; i < keys.length - 1; i++) {
+      var a = keys[i], b = keys[i + 1];
+      if (t >= a[0] && t <= b[0]) {
+        var u = b[0] === a[0] ? 1 : ease((t - a[0]) / (b[0] - a[0]));
+        return { x: a[1] + (b[1] - a[1]) * u, y: a[2] + (b[2] - a[2]) * u };
+      }
+    }
+    var last = keys[keys.length - 1];
+    return { x: last[1], y: last[2] };
+  }
+
+  function folderTime(i) {          // when the row appears
+    if (i < MANUAL) return i * PASS + 0.80;
+    return AUTO_START + (i - MANUAL) * AUTO_STEP;
+  }
+  function namedTime(i) {           // when it has its name
+    if (i < MANUAL) return i * PASS + 1.05;
+    return folderTime(i);
+  }
+  function between(t, a, b) { return t >= a && t < b; }
+  function show(e, on) { e.setAttribute('opacity', on ? 1 : 0); }
+
+  function render(t, motion) {
+    var pass = Math.min(MANUAL - 1, Math.floor(t / PASS));
+    var s = pass * PASS, lt = t - s;
+    var manual = t < MANUAL * PASS;
+    var auto = t >= AUTO_START;
+    var fade = t > DURATION - 0.3 ? Math.max(0, (DURATION - t) / 0.3) : 1;
+
+    // Window focus: Finder is in front between ⌘⇥ and ⌘⇥ during a manual pass
+    var findActive = manual && between(lt, 0.55, 1.55);
+    sheetWin.bar.setAttribute('fill', findActive ? 'var(--panel)' : 'var(--panel-strong)');
+    findWin.bar.setAttribute('fill', findActive ? 'var(--panel-strong)' : 'var(--panel)');
+    sheetWin.title.setAttribute('fill', findActive ? 'var(--muted)' : 'var(--fg)');
+    findWin.title.setAttribute('fill', findActive ? 'var(--fg)' : 'var(--muted)');
+
+    // Sheet: highlighted row and selected cell
+    var hlRow = manual ? (lt >= 1.82 ? pass + 1 : pass) : MANUAL;
+    rowHl.setAttribute('y', ROW0 + hlRow * ROW_H);
+    selName.setAttribute('y', ROW0 + hlRow * ROW_H + 1);
+    show(selName, manual ? between(lt, 0.30, 0.55) : between(t, MANUAL * PASS, POP_OUT));
+
+    // Finder rows
+    var count = 0;
+    for (var i = 0; i < ROWS.length; i++) {
+      var on = t >= folderTime(i);
+      folderEls[i].setAttribute('opacity', on ? fade : 0);
+      show(folderNames[i], on && t >= namedTime(i) && !(manual && i === pass && between(lt, 0.80, 1.28)));
+      if (on) count++;
+    }
+    countEl.textContent = count + (count === 1 ? ' item' : ' items');
+
+    // Rename field while a new folder is being named
+    var editing = manual && between(lt, 0.80, 1.28);
+    show(editBox, editing); show(editText, editing);
+    if (editing) {
+      var label = lt < 1.05 ? 'untitled folder' : ROWS[pass];
+      editText.textContent = label;
+      editText.setAttribute('y', FROW0 + pass * FROW_H + 19);
+      editBox.setAttribute('y', FROW0 + pass * FROW_H + 3);
+      editBox.setAttribute('width', Math.min(FIND.w - 60, label.length * 7.4 + 12));
+    }
+
+    // Card: slides in from the right edge
+    var popOn = between(t, POP_IN, POP_OUT + 0.25);
+    show(pop, popOn);
+    if (popOn) {
+      var u = Math.min(1, (t - POP_IN) / 0.35);
+      var out = t > POP_OUT ? Math.min(1, (t - POP_OUT) / 0.25) : 0;
+      var dx = motion ? (1 - ease(u)) * 60 + ease(out) * 60 : 0;
+      pop.setAttribute('transform', 'translate(' + dx.toFixed(1) + ' 0)');
+      pop.setAttribute('opacity', motion ? Math.min(ease(u), 1 - out) : 1);
+    }
+    yesBtn.setAttribute('opacity', between(t, PRESS, POP_OUT) ? 0.7 : 1);
+
+    // Cursor
+    var c = cursorAt(t);
+    cursor.setAttribute('transform', 'translate(' + c.x.toFixed(1) + ' ' + c.y.toFixed(1) + ')');
+
+    // Key chip
+    var chipLabel = '';
+    for (var k = 0; k < chips.length; k++) {
+      if (between(t, chips[k][0], chips[k][0] + 0.24)) { chipLabel = chips[k][1]; break; }
+    }
+    if (chipLabel && motion) {
+      var w = chipLabel.length * 8 + 14;
+      chipText.textContent = chipLabel;
+      chipRect.setAttribute('width', w);
+      chipText.setAttribute('x', w / 2);
+      chip.setAttribute('transform', 'translate(' + (c.x + 16).toFixed(1) + ' ' + (c.y + 18).toFixed(1) + ')');
+      show(chip, true);
+    } else {
+      show(chip, false);
+    }
+    void auto;
+  }
+
+  // ----- Driver -----
+  var mqMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  var mqNarrow = window.matchMedia('(max-width: 640px)');
+  var raf = null, last = 0, acc = 0, visible = true;
+
+  function frame(now) {
+    if (last) acc = (acc + Math.min(0.1, (now - last) / 1000)) % DURATION;
+    last = now;
+    render(acc, true);
+    raf = requestAnimationFrame(frame);
+  }
+  function start() { if (raf === null) { last = 0; raf = requestAnimationFrame(frame); } }
+  function stop() { if (raf !== null) { cancelAnimationFrame(raf); raf = null; } }
+  function apply() {
+    var isStatic = mqMotion.matches || mqNarrow.matches;
+    svg.setAttribute('viewBox', mqNarrow.matches ? '480 0 480 440' : '0 0 960 440');
+    if (isStatic) { stop(); render(STATIC_T, false); }
+    else if (visible && !document.hidden) { start(); }
+    else { stop(); }
+  }
+
+  if ('IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) { visible = entries[0].isIntersecting; apply(); }, { threshold: 0.05 }).observe(svg);
+  }
+  document.addEventListener('visibilitychange', apply);
+  var onChange = function () { apply(); };
+  if (mqMotion.addEventListener) { mqMotion.addEventListener('change', onChange); mqNarrow.addEventListener('change', onChange); }
+  else { mqMotion.addListener(onChange); mqNarrow.addListener(onChange); }
+
+  render(0, false);
+  apply();
+})();
+
+// Scroll reveals, rhythm typing, nav border
+(function () {
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var nav = document.getElementById('nav');
+  function onScroll() { nav.classList.toggle('scrolled', window.scrollY > 8); }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  var term = document.getElementById('terminal');
+  var toks = term.querySelectorAll('.tok, .note');
+  toks.forEach(function (t, i) { t.style.setProperty('--d', (i * 0.07 + (t.classList.contains('note') ? 0.35 : 0)) + 's'); });
+
+  var reveals = document.querySelectorAll('.reveal');
+  if (reduce || !('IntersectionObserver' in window)) {
+    reveals.forEach(function (r) { r.classList.add('in'); });
+    return;
+  }
+  term.classList.add('armed');
+  var io = new IntersectionObserver(function (entries) {
+    entries.forEach(function (e) {
+      if (!e.isIntersecting) return;
+      e.target.classList.add('in');
+      if (e.target === term) term.classList.add('play');
+      io.unobserve(e.target);
+    });
+  }, { threshold: 0.15, rootMargin: '0px 0px -8% 0px' });
+  reveals.forEach(function (r) { io.observe(r); });
+})();
+</script>
+</body>
+</html>

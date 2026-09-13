@@ -4,3 +4,4 @@ TestResults/
 *.sqlite-shm
 *.sqlite-wal
 .DS_Store
+Handoff.app/

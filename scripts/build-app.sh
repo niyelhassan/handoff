@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Builds the release binary and wraps it in "Handoff.app" next to this package.
+# Builds the release binary and wraps it in "Handoff.app" inside this package (git-ignored).
 # Signing: uses an "Apple Development" identity when one exists so the app's Accessibility
 # permission survives rebuilds (ad-hoc signatures change identity on every build).
 set -euo pipefail
@@ -7,7 +7,7 @@ SCOUT_ROOT="${0:A:h:h}"
 cd "$SCOUT_ROOT"
 swift build -c release --product RoutineScout 2>&1 | grep -v "not accessible or not writable" || true
 test -x .build/release/RoutineScout || { echo "Build failed"; exit 1; }
-SCOUT_APP="${SCOUT_APP:-$SCOUT_ROOT/../Handoff.app}"
+SCOUT_APP="${SCOUT_APP:-$SCOUT_ROOT/Handoff.app}"
 mkdir -p "$SCOUT_APP/Contents/MacOS" "$SCOUT_APP/Contents/Resources"
 cp .build/release/RoutineScout "$SCOUT_APP/Contents/MacOS/RoutineScout"
 cat > "$SCOUT_APP/Contents/Info.plist" <<'PLIST'
