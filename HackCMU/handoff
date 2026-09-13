@@ -1,0 +1,60 @@
+#!/bin/bash
+# Task runner. Deliberately NOT a Makefile: /usr/bin/make on this machine is an
+# xcode-select shim that aborts with the same _XPCTypeBool crash as xcodebuild.
+set -euo pipefail
+cd "$(dirname "$0")"
+APP="build/Handoff.app"
+
+case "${1:-app}" in
+  build)  . ./scripts/env.sh && "$SWIFT" build -c release ;;
+  app)    ./scripts/bundle.sh ;;
+  debug)  LOOPY_CONFIG=debug ./scripts/bundle.sh ;;
+  # ALWAYS via `open`. Launching Contents/MacOS/Handoff from a terminal makes the
+  # TERMINAL the TCC responsible process: the grant lands on it, not on Handoff.
+  run)    ./scripts/bundle.sh && open -n "$APP" ;;
+  # Shows the suggestion window immediately, without having to perform a real
+  # repeated task first.
+  demo)   ./scripts/bundle.sh && open -n "$APP" --args --demo ;;
+  # Like run, but writes every step + web snapshot to /tmp/handoff-trace.txt so a
+  # real task can be diagnosed. `./handoff trace` then do your task; read the file.
+  trace)  ./scripts/bundle.sh && rm -f /tmp/handoff-trace.txt \
+          && open -n "$APP" --args --trace \
+          && echo "tracing to /tmp/handoff-trace.txt - do your task, then: cat /tmp/handoff-trace.txt" ;;
+  # The Hazard A litmus test. Must print a certificate leaf, never a cdhash.
+  dr)     codesign -d -r- "$APP" 2>&1 | sed -n 's/^designated => /  /p' ;;
+  cert)   ./scripts/make-cert.sh ;;
+  reset)  ./scripts/reset-tcc.sh ;;
+  probe)  ./scripts/bundle-probe.sh
+          OUT=/tmp/handoff-probe.txt; rm -f "$OUT"
+          # via `open` so TCC attributes the probe to itself, not the terminal
+          open -n build/HandoffProbe.app --args "$OUT"
+          echo "waiting for probe (grant Accessibility to HandoffProbe if asked)..."
+          for _ in $(seq 1 70); do [ -f "$OUT" ] && break; sleep 1; done
+          cat "$OUT" 2>/dev/null || echo "probe produced no output" ;;
+  test)   ./scripts/selftest.sh ;;
+  # Shows the exact payload sent to Claude Fable 5.1, and calls it when a key
+  # is configured. Costs money, so it is not part of `./handoff test`.
+  understand) LOOPY_UNDERSTAND=1 ./scripts/selftest.sh 2>&1 \
+                | sed -n '/=== model ===/,$p' ;;
+  # What does the resolver actually see inside Finder / Safari? Reads live
+  # windows via hit tests; synthesizes no input and changes nothing.
+  axdump) ./scripts/bundle.sh >/dev/null
+          OUT=/tmp/handoff-axdump.txt; rm -f "$OUT"
+          pkill -x Handoff 2>/dev/null || true
+          open -n "$APP" --args --axdump "$OUT"
+          for _ in $(seq 1 30); do [ -f "$OUT" ] && break; sleep 1; done
+          cat "$OUT" 2>/dev/null || echo "no axdump produced" ;;
+  # Exercises replay targeting against the live Finder window. Dry by default:
+  # it locates every element and computes every coordinate, but posts nothing.
+  # `./handoff replaytest --live` really clicks - safe because the only step it
+  # replays is a row selection, which changes nothing on disk.
+  replaytest)
+          ./scripts/bundle.sh >/dev/null
+          OUT=/tmp/handoff-replaytest.txt; rm -f "$OUT"
+          pkill -x Handoff 2>/dev/null || true
+          open -n "$APP" --args --replaytest "$OUT" ${2:-} ${3:-}
+          for _ in $(seq 1 40); do [ -f "$OUT" ] && break; sleep 1; done
+          cat "$OUT" 2>/dev/null || echo "no replaytest output" ;;
+  clean)  rm -rf .build build ;;
+  *)      echo "usage: ./handoff {build|app|debug|run|demo|trace|test|understand|axdump|replaytest|dr|cert|reset|probe|clean}"; exit 1 ;;
+esac

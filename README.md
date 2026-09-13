@@ -73,4 +73,9 @@ Sources/CSQLite        system SQLite module map
 Tests/ScoutCoreTests   portable test runner (no XCTest dependency)
 scripts/               build-app.sh, native-test.sh
 index.html             landing page
+HackCMU/               other implementation (event-tap replay; see HackCMU/README.md)
 ```
+
+## Other implementation
+
+`HackCMU/` is a second Handoff, from [AA2026/handoff](https://github.com/AA2026/handoff). It uses a global event tap and live accessibility replay. It is not the app this README builds. To run it: `cd HackCMU && ./handoff run`.

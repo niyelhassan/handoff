@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- MUST stay false. A sandboxed app can never hold kTCCServiceAccessibility
+         and can never create a global event tap. There is no entitlement that
+         grants either. This is why Handoff cannot ship on the Mac App Store. -->
+    <key>com.apple.security.app-sandbox</key>
+    <false/>
+
+    <!-- Lets a debugger attach to the signed bundle. -->
+    <key>com.apple.security.get-task-allow</key>
+    <true/>
+</dict>
+</plist>

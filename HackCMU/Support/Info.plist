@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>     <string>en</string>
+    <key>CFBundleExecutable</key>            <string>Handoff</string>
+    <!-- FROZEN. TCC keys grants on bundle id; changing this discards every
+         permission the user has granted. -->
+    <key>CFBundleIdentifier</key>            <string>com.hackcmu.handoff</string>
+    <key>CFBundleInfoDictionaryVersion</key> <string>6.0</string>
+    <key>CFBundleName</key>                  <string>Handoff</string>
+    <key>CFBundleDisplayName</key>           <string>Handoff</string>
+    <key>CFBundlePackageType</key>           <string>APPL</string>
+    <key>CFBundleShortVersionString</key>    <string>0.1</string>
+    <key>CFBundleVersion</key>               <string>1</string>
+    <key>LSMinimumSystemVersion</key>        <string>15.0</string>
+    <key>NSHighResolutionCapable</key>       <true/>
+    <key>NSPrincipalClass</key>              <string>NSApplication</string>
+
+    <!-- Menu-bar only: no Dock tile, never activates from app switching.
+         Load-bearing: activating would put Handoff in the AX focus chain and
+         corrupt the very capture stream we are reading. -->
+    <key>LSUIElement</key>                   <true/>
+
+    <!-- NOTE: there is deliberately no usage-description key for Accessibility
+         or Input Monitoring. None exists on any macOS version - those prompts
+         are system-owned and their text cannot be customized. The only way to
+         explain ourselves is our own onboarding UI, shown BEFORE we prompt. -->
+</dict>
+</plist>

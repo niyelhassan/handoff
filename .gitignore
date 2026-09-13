@@ -5,3 +5,6 @@ TestResults/
 *.sqlite-wal
 .DS_Store
 Handoff.app/
+HackCMU/.build/
+HackCMU/build/
+**/Handoff.app/
